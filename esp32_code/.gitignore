@@ -1,0 +1,11 @@
+# Fișiere cu date sensibile
+.env
+
+# Fișiere backup IDE
+*.bak
+*~
+
+# Fișiere compilare
+*.o
+*.elf
+*.bin

@@ -1,0 +1,39 @@
+/frontend/.phpunit.cache
+/frontend/bootstrap/ssr
+/frontend/public/build
+/frontend/public/hot
+/frontend/public/storage
+/frontend/storage/*.key
+/frontend/storage/pail
+/frontend/resources/js/actions
+/frontend/resources/js/routes
+/frontend/resources/js/wayfinder
+/frontend/node_modules
+/frontend/vendor
+.DS_Store
+/frontend/.env
+/frontend/.env.backup
+/frontend/.env.production
+/frontend/.phpactor.json
+/frontend/.phpunit.result.cache
+/frontend/Homestead.json
+/frontend/Homestead.yaml
+/frontend/npm-debug.log
+/frontend/yarn-error.log
+/frontend/auth.json
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+
+# ESP32 config files
+esp32_code/config.h
+esp32_code/.env
+
+# Database
+*.sqlite
+*.sqlite-journal
+
+# Logs
+/frontend/storage/logs/*.log
