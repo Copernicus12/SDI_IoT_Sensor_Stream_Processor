@@ -43,7 +43,7 @@ Route::middleware(['auth'])->group(function () {
                 'unit' => $sensor->unit,
                 'is_online' => $isOnline,
                 'value' => $sensor->latestReading ? $sensor->latestReading->value : null,
-                'last_update' => $sensor->latestReading ? $sensor->latestReading->created_at->diffForHumans() : 'Never',
+                'last_update' => $sensor->latestReading ? $sensor->latestReading->created_at->setTimezone('Europe/Bucharest')->format('d.m.Y H:i:s') : 'Never',
                 'stats' => [
                     'min' => $todayMin !== null ? round($todayMin, 1) : '--',
                     'max' => $todayMax !== null ? round($todayMax, 1) : '--',
@@ -63,7 +63,7 @@ Route::middleware(['auth'])->group(function () {
                     'sensor' => $reading->sensor->name ?? $reading->sensor->sensor_type,
                     'value' => $reading->value,
                     'unit' => $reading->sensor->unit,
-                    'time' => $reading->created_at->format('H:i:s'),
+                    'time' => $reading->created_at->setTimezone('Europe/Bucharest')->format('d.m.Y H:i:s'),
                 ];
             });
 

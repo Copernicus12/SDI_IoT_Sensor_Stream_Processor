@@ -13,6 +13,7 @@ import sdi.iot.repo.SensorRepository;
 import sdi.iot.web.dto.ApiResponse;
 import sdi.iot.web.dto.SensorDtos.*;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;

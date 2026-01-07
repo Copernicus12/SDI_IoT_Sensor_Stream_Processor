@@ -134,7 +134,8 @@ onUnmounted(() => {
                         <div v-if="sensor.is_online" class="text-green-500" title="Online">
                             <Wifi class="w-4 h-4" />
                         </div>
-                        <div v-else class="text-red-500" title="Offline">
+                        <div v-else class="text-red-500 flex items-center gap-2" title="Offline">
+                            <span class="text-[10px] font-mono opacity-80">{{ sensor.last_update }}</span>
                             <WifiOff class="w-4 h-4" />
                         </div>
                     </div>

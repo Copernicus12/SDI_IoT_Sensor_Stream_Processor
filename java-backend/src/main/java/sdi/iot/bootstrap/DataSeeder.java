@@ -12,6 +12,7 @@ import sdi.iot.repo.SensorRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Random;
+import java.util.Random;
 
 @Component
 public class DataSeeder implements CommandLineRunner {
@@ -26,10 +27,10 @@ public class DataSeeder implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         if (sensors.count() == 0) {
-            Sensor t = new Sensor(); t.setName("DHT11 Temperature"); t.setType("temperatura"); t.setUnit("°C"); t.setNodeId("node-1"); sensors.save(t);
-            Sensor h = new Sensor(); h.setName("DHT11 Humidity"); h.setType("umiditate"); h.setUnit("%"); h.setNodeId("node-1"); sensors.save(h);
-            Sensor s = new Sensor(); s.setName("Soil Moisture"); s.setType("umiditate_sol"); s.setUnit("%"); s.setNodeId("node-2"); sensors.save(s);
-            Sensor c = new Sensor(); c.setName("ACS712 Current"); c.setType("curent"); c.setUnit("A"); c.setNodeId("node-3"); sensors.save(c);
+            Sensor t = new Sensor(); t.setName("DHT11 Temperature"); t.setType("temperatura"); t.setUnit("°C"); t.setNodeId("node-1"); t.setActive(true); t.setMqttTopic("iot/esp32_node1/temperatura"); sensors.save(t);
+            Sensor h = new Sensor(); h.setName("DHT11 Humidity"); h.setType("umiditate"); h.setUnit("%"); h.setNodeId("node-1"); h.setActive(true); h.setMqttTopic("iot/esp32_node1/umiditate"); sensors.save(h);
+            Sensor s = new Sensor(); s.setName("Soil Moisture"); s.setType("umiditate_sol"); s.setUnit("%"); s.setNodeId("node-2"); s.setActive(true); s.setMqttTopic("iot/esp32_node2/umiditate_sol"); sensors.save(s);
+            Sensor c = new Sensor(); c.setName("ACS712 Current"); c.setType("curent"); c.setUnit("A"); c.setNodeId("node-3"); c.setActive(true); c.setMqttTopic("iot/esp32_node3/curent"); sensors.save(c);
 
             Random rnd = new Random(42);
             var now = Instant.now();
