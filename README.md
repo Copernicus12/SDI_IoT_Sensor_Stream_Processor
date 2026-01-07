@@ -15,6 +15,8 @@ composer run dev
 3) In alt terminal, intra in `java-backend/` si ruleaza:
 ```
 mvn -q spring-boot:run
+
+php artisan mqtt:subscribe
 ```
 
 4) Inca un terminal din root:

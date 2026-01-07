@@ -236,6 +236,7 @@ const getChartData = (readings: SensorReading[], label: string, color: string) =
             data: sorted.map(r => r.value),
             borderColor: color,
             fill: true,
+            tension: 0.4,
             pointRadius: 0,
             pointHoverRadius: 6,
         }]

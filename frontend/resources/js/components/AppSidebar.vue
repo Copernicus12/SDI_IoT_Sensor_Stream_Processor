@@ -15,7 +15,7 @@ import { dashboard } from '@/routes';
 import dashboardRoutes from '@/routes/dashboard';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
-import { LayoutGrid, Thermometer, Droplet, Zap, TrendingUp, Activity, Download } from 'lucide-vue-next';
+import { LayoutGrid, Thermometer, Droplet, Zap, TrendingUp, Activity, Download, Cpu } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
 const mainNavItems: NavItem[] = [
@@ -23,6 +23,28 @@ const mainNavItems: NavItem[] = [
         title: 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
+    },
+    {
+        title: 'Sensors',
+        href: '#',
+        icon: Cpu,
+        items: [
+            {
+                title: 'DHT11',
+                href: dashboardRoutes.dht11(),
+                icon: Thermometer,
+            },
+            {
+                title: 'Soil',
+                href: dashboardRoutes.soil(),
+                icon: Droplet,
+            },
+            {
+                title: 'ACS712',
+                href: dashboardRoutes.acs(),
+                icon: Zap,
+            },
+        ],
     },
     {
         title: 'Trends',
@@ -38,21 +60,6 @@ const mainNavItems: NavItem[] = [
         title: 'Export',
         href: '/dashboard/export',
         icon: Download,
-    },
-    {
-        title: 'DHT11',
-        href: dashboardRoutes.dht11(),
-        icon: Thermometer,
-    },
-    {
-        title: 'Soil',
-        href: dashboardRoutes.soil(),
-        icon: Droplet,
-    },
-    {
-        title: 'ACS712',
-        href: dashboardRoutes.acs(),
-        icon: Zap,
     },
 ];
 

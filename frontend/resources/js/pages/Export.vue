@@ -111,16 +111,16 @@ onMounted(fetchSensors)
                                 <p class="text-xs text-gray-500 mt-2">Max limit: 720 hours (30 days)</p>
                             </div>
 
-                            <!-- API Token (Optional) -->
+                            <!-- API Token (Required) -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    API Token <span class="text-gray-400 font-normal">(Optional)</span>
+                                    API Token <span class="text-red-500 font-normal">*</span>
                                 </label>
                                 <div class="relative">
                                     <input 
                                         v-model="token" 
                                         type="text" 
-                                        placeholder="Paste your secure token here..." 
+                                        placeholder="dev-12345" 
                                         class="w-full rounded-lg border border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900/50 py-3 pl-4 pr-10 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-mono"
                                     />
                                     <div class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
@@ -129,7 +129,7 @@ onMounted(fetchSensors)
                                 </div>
                                 <div class="flex items-start gap-2 mt-2 text-xs text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/10 p-2 rounded-md">
                                     <Shield class="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                                    <p>Only required if accessing from external tools or scripts without browser session cookies.</p>
+                                    <p>Security enforced. Use token <b>dev-12345</b> for testing.</p>
                                 </div>
                             </div>
 
@@ -157,16 +157,16 @@ onMounted(fetchSensors)
 
                     <!-- Info/API Help Card -->
                     <div class="md:col-span-1 space-y-6">
-                         <div class="rounded-xl border border-blue-100 bg-blue-50/50 dark:border-blue-900/30 dark:bg-blue-900/10 p-6">
-                            <h4 class="font-semibold text-blue-900 dark:text-blue-100 mb-2 flex items-center gap-2">
+                         <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+                            <h4 class="font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                                 API Access
                             </h4>
-                            <p class="text-sm text-blue-800 dark:text-blue-200 mb-4 leading-relaxed">
+                            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
                                 You can automate data retrieval using  or external scripts.
                             </p>
                             
-                            <div class="bg-slate-900 rounded-lg p-3 overflow-x-auto">
-                                <code class="text-xs text-green-400 font-mono whitespace-nowrap">
+                            <div class="bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg p-3 overflow-x-auto">
+                                <code class="text-xs text-gray-800 dark:text-gray-300 font-mono whitespace-nowrap">
                                     curl -H "X-API-Token: YOUR_TOKEN"<br/>
                                     {{ apiUrl('/api/export/...') }}
                                 </code>
