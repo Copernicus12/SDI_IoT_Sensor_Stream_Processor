@@ -1,242 +1,305 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { apiFetch } from '@/lib/api';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { type BreadcrumbItem } from '@/types';
 import { Line } from 'vue-chartjs';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  TimeScale
+} from 'chart.js';
+import { 
+    Activity, 
+    Droplets, 
+    Sprout, 
+    AlertTriangle,
+    CheckCircle,
+    Info,
+    TrendingUp,
+    TrendingDown,
+    Zap
+} from 'lucide-vue-next';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, TimeScale);
 
 interface SensorReading { value: number; timestamp: string }
-interface Sensor { id: number; node_id: string; name: string; type: string; unit: string; latest_value: number | null; latest_reading_at: string | null }
+interface Sensor { 
+    id: number; 
+    name: string; 
+    type: string; 
+    unit: string; 
+    latest_value: number | null; 
+    latest_reading_at: string | null 
+}
 
 const sensors = ref<Sensor[]>([]);
 const historicalData = ref<Record<number, SensorReading[]>>({});
-const stats24h = ref<{ sensor_type: string; avg: number; min: number; max: number; unit: string }[]>([]);
+const stats24h = ref<Record<string, { avg: number; min: number; max: number }>>({});
 const loading = ref(true);
+const chartPeriod = ref(6);
 let intervalId: number | null = null;
 
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Dashboard', href: '/dashboard' },
+    { title: 'Soil Monitor', href: '/dashboard/soil' },
+];
+
+const periods = [
+    { label: '1H', value: 1 },
+    { label: '6H', value: 6 },
+    { label: '12H', value: 12 },
+    { label: '24H', value: 24 },
+];
+
 const isDark = computed(() => document.documentElement.classList.contains('dark'));
+const soilSensor = computed(() => sensors.value.find(s => s.type === 'umiditate_sol' || s.name.toLowerCase().includes('soil') || s.type.toLowerCase().includes('soil')));
+const latestValue = computed(() => soilSensor.value?.latest_value ?? null);
+const readings = computed(() => soilSensor.value ? (historicalData.value[soilSensor.value.id] || []) : []);
+
+const moistureStatus = computed(() => {
+    const val = latestValue.value;
+    if (val === null) return { label: 'Unknown', color: 'text-gray-500', icon: Info, bg: 'bg-gray-50 dark:bg-zinc-800' };
+    
+    // Assuming 0-4095 or 0-100 logic. If analog input, likely inverse or needs calibration. 
+    // Usually capacitive soil sensors: High Value = Dry (Air), Low Value = Wet (Water) or vice versa depending on wiring.
+    // Let's assume calibrated percentage (0-100%). If raw, we might need normalization.
+    // Based on typical backend normalization, let's assume it's mapped to % or raw value.
+    // If > 100, it's likely raw analog (0-4095).
+    
+    let pct = val; 
+    if (val > 100) { 
+        // Simple heuristic map if raw: 4095=Dry, 1500=Wet? Or 0=Dry? 
+        // Without calibration info, we'll display raw but status might be guessed.
+        // Let's assume the backend normalizes it, if not, we display raw.
+        // For UI purposes, let's assume it's Percentage for status logic:
+        // If raw, we can't easily guess status without calibration points.
+        return { label: 'Raw Analog', color: 'text-blue-500', icon: Activity, bg: 'bg-blue-50 dark:bg-blue-900/20' }; 
+    }
+
+    if (pct < 20) return { label: 'Very Dry', color: 'text-red-500', icon: AlertTriangle, bg: 'bg-red-50 dark:bg-red-900/20' };
+    if (pct < 40) return { label: 'Dry', color: 'text-orange-500', icon: Sprout, bg: 'bg-orange-50 dark:bg-orange-900/20' };
+    if (pct < 70) return { label: 'Optimal', color: 'text-emerald-500', icon: CheckCircle, bg: 'bg-emerald-50 dark:bg-emerald-900/20' };
+    return { label: 'Saturated', color: 'text-blue-500', icon: Droplets, bg: 'bg-blue-50 dark:bg-blue-900/20' };
+});
 
 const chartOptions = computed(() => ({
-  responsive: true, maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { enabled: true } },
-  scales: { x: { display: true, grid: { display: false } }, y: { display: true, grid: { color: isDark.value ? 'rgba(51,65,85,.3)' : 'rgba(226,232,240,.8)' } } },
-  interaction: { intersect: false, mode: 'index' as const },
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: {
+            mode: 'index' as const,
+            intersect: false,
+            backgroundColor: isDark.value ? '#18181b' : '#ffffff',
+            titleColor: isDark.value ? '#f4f4f5' : '#18181b',
+            bodyColor: isDark.value ? '#a1a1aa' : '#52525b',
+            borderColor: isDark.value ? '#27272a' : '#e4e4e7',
+            borderWidth: 1,
+            callbacks: { label: (c:any) => `${c.parsed.y.toFixed(1)}` }
+        }
+    },
+    scales: {
+        x: { display: false },
+        y: { 
+            display: true, 
+            grid: { color: isDark.value ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } 
+        }
+    },
+    elements: {
+        line: {
+            tension: 0.4,
+            borderWidth: 2,
+            borderColor: 'rgb(16, 185, 129)', // Emerald-500
+            fill: true,
+            backgroundColor: (ctx: any) => {
+                const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 300);
+                gradient.addColorStop(0, 'rgba(16, 185, 129, 0.2)');
+                gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
+                return gradient;
+            }
+        },
+        point: { radius: 0, hoverRadius: 6 }
+    }
 }));
 
-const getChartColor = (alpha = 1) => `rgba(34,197,94,${alpha})`;
+const chartData = computed(() => {
+    const sorted = [...readings.value].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return {
+        labels: sorted.map(r => new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})),
+        datasets: [{
+            label: 'Soil Moisture',
+            data: sorted.map(r => r.value)
+        }]
+    };
+});
 
-const soilSensor = computed(() => sensors.value.find(s => s.type === 'umiditate_sol'));
-const latestSoil = computed(() => soilSensor.value?.latest_value ?? null);
+const irrigationNeeded = computed(() => {
+    if (latestValue.value === null) return false;
+    // Assuming % mapping: < 30% needs water
+    return latestValue.value < 30;
+});
 
-// thresholds (you can tune): dry <30, optimal 30-60, wet >60
-function soilStatus(value?: number | null): 'uscat' | 'optim' | 'ud' | 'necunoscut' {
-  if (value == null || isNaN(value)) return 'necunoscut';
-  if (value < 30) return 'uscat';
-  if (value <= 60) return 'optim';
-  return 'ud';
-}
+// Volatility/Stability
+const volatility = computed(() => {
+    if (readings.value.length < 2) return 0;
+    const vals = readings.value.map(r => r.value);
+    const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sqDiff = vals.map(v => Math.pow(v-mean,2));
+    const avgSqDiff = sqDiff.reduce((a,b)=>a+b,0)/vals.length;
+    return Math.sqrt(avgSqDiff);
+});
 
-function wateringHint(status: ReturnType<typeof soilStatus>): string {
-  switch (status) {
-    case 'uscat': return 'Recomandat udat';
-    case 'optim': return 'Bun, nu este necesar';
-    case 'ud': return 'Prea umed, evita udarea';
-    default: return 'Fără recomandare';
-  }
-}
-
-const fetchSensors = async () => {
-  const res = await apiFetch('/api/sensors');
-  const json = await res.json();
-  if (json.success) sensors.value = (json.data as Sensor[]).filter(s => s.type === 'umiditate_sol');
-  loading.value = false;
+const fetchData = async () => {
+    try {
+        const res = await apiFetch('/api/sensors');
+        const json = await res.json();
+        sensors.value = json.data ?? [];
+        await fetchHistory();
+        
+        const sRes = await apiFetch('/api/sensors/statistics?hours=24');
+        const sJson = await sRes.json();
+        if (sJson.success) {
+             sJson.data.forEach((st: any) => {
+                stats24h.value[st.sensor_type] = { avg: st.avg, min: st.min, max: st.max };
+            });
+        }
+    } catch (e) {
+        console.error("Soil fetch error", e);
+    } finally {
+        loading.value = false;
+    }
 };
 
-const fetchHistoricalData = async (sensorId: number) => {
-  const res = await apiFetch(`/api/sensors/${sensorId}/readings?hours=2&limit=30`);
-  const json = await res.json();
-  if (json.success) historicalData.value[sensorId] = json.data.readings as SensorReading[];
+const fetchHistory = async () => {
+    const limit = chartPeriod.value * 20;
+    if (soilSensor.value) {
+        const res = await apiFetch(`/api/sensors/${soilSensor.value.id}/readings?hours=${chartPeriod.value}&limit=${limit}`);
+        const json = await res.json();
+        if (json.success) historicalData.value[soilSensor.value.id] = json.data.readings;
+    }
 };
 
-const fetchStats24h = async () => {
-  const res = await apiFetch('/api/sensors/statistics?hours=24');
-  const json = await res.json();
-  if (json.success) {
-    const only = (json.data as any[]).filter(s => s.sensor_type === 'umiditate_sol');
-    stats24h.value = only;
-  }
-};
+watch(chartPeriod, fetchHistory);
 
-const getChartData = (sensorId: number) => {
-  const readings = historicalData.value[sensorId] || [];
-  return {
-    labels: readings.map(r => new Date(r.timestamp).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })).reverse(),
-    datasets: [{ data: readings.map(r => r.value).reverse(), borderColor: getChartColor(), backgroundColor: getChartColor(.1), tension: .4, fill: true, borderWidth: 2, pointRadius: 0 }]
-  };
-};
-
-onMounted(async () => {
-  await fetchSensors();
-  sensors.value.forEach(s => fetchHistoricalData(s.id));
-  await fetchStats24h();
-  intervalId = window.setInterval(() => sensors.value.forEach(s => fetchHistoricalData(s.id)), 3000);
+onMounted(() => {
+    fetchData();
+    intervalId = window.setInterval(fetchData, 30000);
 });
-
-onUnmounted(() => { if (intervalId) clearInterval(intervalId) });
-
-// rolling average 30 min and time-below-threshold from last 2h
-const series = computed(() => {
-  const id = soilSensor.value?.id; if (!id) return [] as SensorReading[];
-  return (historicalData.value[id] || []).slice().reverse(); // ascending time
-});
-
-const rollingAvg30 = computed(() => {
-  const now = Date.now();
-  const cutoff = now - 30 * 60 * 1000;
-  const vals = series.value.filter(r => new Date(r.timestamp).getTime() >= cutoff).map(r => r.value);
-  if (vals.length === 0) return null;
-  return vals.reduce((a,b)=>a+b,0) / vals.length;
-});
-
-const pctBelow30 = computed(() => {
-  const s = series.value; if (s.length < 2) return 0;
-  let underMs = 0, totalMs = 0;
-  for (let i=1;i<s.length;i++){
-    const t0 = new Date(s[i-1].timestamp).getTime();
-    const t1 = new Date(s[i].timestamp).getTime();
-    const dt = Math.max(0, t1 - t0);
-    totalMs += dt;
-    if (s[i-1].value < 30) underMs += dt;
-  }
-  return totalMs ? Math.round((underMs/totalMs)*100) : 0;
-});
-
-const soilHistData = computed(() => {
-  const vals = series.value.map(r => r.value);
-  if (!vals.length) return { labels: [], counts: [] as number[] };
-  const buckets = [0,10,20,30,40,50,60,70,80,90];
-  const counts = new Array(buckets.length).fill(0);
-  for (const v of vals) {
-    const idx = Math.min(Math.floor(v/10), buckets.length-1);
-    counts[idx]++;
-  }
-  const labels = buckets.map(b => `${b}–${b+10}%`);
-  return { labels, counts };
-});
+onUnmounted(() => { if (intervalId) clearInterval(intervalId); });
 </script>
 
 <template>
-  <AppLayout>
-    <Head title="Umiditate Sol" />
-    <div class="min-h-screen bg-white dark:bg-black">
-      <div class="container mx-auto px-6 py-8 max-w-7xl">
-        <div class="mb-6">
-          <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-            <span>🌱</span> Umiditate Sol
-          </h1>
-          <p class="text-sm text-slate-600 dark:text-slate-400">Monitorizare live umiditate sol</p>
-        </div>
+    <Head title="Soil Moisture Monitor" />
 
-        <div v-if="loading" class="py-20 text-center text-slate-500">Încărcare...</div>
-
-        <div v-else class="space-y-8">
-          <!-- KPIs -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Umiditate sol</CardTitle></CardHeader>
-              <CardContent class="flex items-end justify-between">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-4xl font-black">{{ latestSoil?.toFixed(1) ?? '--' }}</span>
-                  <span class="text-sm opacity-70">%</span>
+    <AppLayout :breadcrumbs="breadcrumbs">
+        <div class="flex flex-1 flex-col gap-6 p-4">
+            
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Sprout class="w-6 h-6 text-emerald-500" />
+                        Soil Moisture Analysis
+                    </h2>
+                    <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                        Real-time agricultural telemetry and irrigation status.
+                    </p>
                 </div>
-                <div class="text-right text-xs text-slate-500">
-                  <div>Ultima</div>
-                  <div class="font-medium">{{ soilSensor?.latest_reading_at ? new Date(soilSensor.latest_reading_at).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : '--' }}</div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Stare</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold capitalize">{{ soilStatus(latestSoil) }}</div>
-                <div class="text-xs text-slate-500">{{ wateringHint(soilStatus(latestSoil)) }}</div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Medie 30 min</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ rollingAvg30?.toFixed(1) ?? '--' }} <span class="text-sm font-semibold opacity-70">%</span></div>
-                <div class="text-xs text-slate-500">Stabilitate: {{ rollingAvg30==null ? '--' : Math.abs((latestSoil ?? 0) - rollingAvg30).toFixed(1) }}%</div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Sub 30% (2h)</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ pctBelow30 }}%</div>
-                <div class="text-xs text-slate-500">Timp din ultimele 2 ore</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <!-- Trend (2h) -->
-          <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-            <CardHeader class="pb-1">
-              <CardTitle class="text-lg font-bold">Tendință umiditate sol (2h)</CardTitle>
-              <CardDescription>Linie cu umplere</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div class="h-48 bg-slate-50 dark:bg-zinc-900 rounded-lg p-2">
-                <Line v-if="soilSensor?.id && historicalData[soilSensor.id]" :data="getChartData(soilSensor.id)" :options="chartOptions" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <!-- Reports -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950 lg:col-span-2">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Raport 24h</CardTitle>
-                <CardDescription>Medie, minim, maxim</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                    <div class="text-xs text-slate-500">Umiditate sol</div>
-                    <div class="mt-1 text-sm">
-                      <div>Medie: <span class="font-semibold">{{ stats24h[0]?.avg?.toFixed(1) ?? '--' }}</span> %</div>
-                      <div>Min: <span class="font-semibold">{{ stats24h[0]?.min?.toFixed(1) ?? '--' }}</span> %</div>
-                      <div>Max: <span class="font-semibold">{{ stats24h[0]?.max?.toFixed(1) ?? '--' }}</span> %</div>
+                 <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1 bg-white dark:bg-zinc-900 p-1 rounded-lg border border-gray-200 dark:border-zinc-800 shadow-sm">
+                        <button v-for="p in periods" :key="p.value" @click="chartPeriod = p.value"
+                            :class="['px-3 py-1 text-xs font-medium rounded-md transition-colors', chartPeriod === p.value ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400']">
+                            {{ p.label }}
+                        </button>
                     </div>
-                  </div>
                 </div>
-              </CardContent>
-            </Card>
+            </div>
 
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950 lg:col-span-1">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Distribuție (2h)</CardTitle>
-                <CardDescription>Bucket 10%</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div class="text-xs text-slate-500" v-if="!soilHistData.labels.length">Insuficiente date</div>
-                <div class="grid grid-cols-1 gap-1" v-else>
-                  <div v-for="(label,idx) in soilHistData.labels" :key="'b'+idx" class="flex items-center gap-2">
-                    <div class="w-16 text-xs text-slate-600 dark:text-slate-400">{{ label }}</div>
-                    <div class="flex-1 h-2 bg-slate-200 dark:bg-zinc-900 rounded">
-                      <div class="h-2 rounded bg-green-500" :style="{ width: Math.min((soilHistData.counts[idx] / Math.max(...soilHistData.counts)) * 100, 100) + '%' }"></div>
+            <!-- Main Status Card -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Status -->
+                <div :class="['rounded-xl border p-6 shadow-sm flex flex-col justify-between', moistureStatus.bg, 'border-transparent']">
+                    <div>
+                         <p class="text-sm font-medium opacity-70 uppercase tracking-wider mb-2">Soil Status</p>
+                         <h3 :class="['text-3xl font-bold flex items-center gap-2', moistureStatus.color]">
+                            {{ moistureStatus.label }}
+                         </h3>
                     </div>
-                    <div class="w-8 text-right text-xs">{{ soilHistData.counts[idx] }}</div>
-                  </div>
+                    <div class="mt-4 flex items-center gap-3">
+                        <component :is="moistureStatus.icon" :class="['w-8 h-8', moistureStatus.color]" />
+                        <span class="text-sm opacity-80" v-if="irrigationNeeded">Irrigation Recommended</span>
+                        <span class="text-sm opacity-80" v-else>Levels are good</span>
+                    </div>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+
+                <!-- Live Metric -->
+                <div class="md:col-span-2 rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm flex flex-col">
+                    <div class="p-6 border-b border-gray-100 dark:border-zinc-800 flex justify-between items-start">
+                        <div>
+                             <p class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Live Moisture Level</p>
+                             <div class="flex items-baseline gap-2">
+                                <h3 class="text-4xl font-bold text-gray-900 dark:text-white">
+                                    {{ latestValue?.toFixed(1) ?? '--' }}
+                                </h3>
+                                <span class="text-xl text-gray-500">%</span>
+                             </div>
+                        </div>
+                        <div class="text-right">
+                             <div class="text-xs text-gray-500 uppercase mb-1">24h Avg</div>
+                             <div class="font-semibold text-gray-900 dark:text-white">
+                                {{ stats24h[soilSensor?.type]?.avg.toFixed(1) ?? '--' }}%
+                             </div>
+                        </div>
+                    </div>
+                    <div class="flex-1 min-h-[250px] relative p-4">
+                        <Line :data="chartData" :options="chartOptions" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Analytics -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                    <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                        <Activity class="w-5 h-5 text-indigo-500" />
+                        Soil Stability (Volatility)
+                    </h3>
+                    <div class="flex items-center gap-4">
+                        <div class="text-2xl font-bold text-gray-900 dark:text-white">±{{ volatility.toFixed(2) }}%</div>
+                        <p class="text-sm text-gray-500">Standard deviation over selected period. High volatility may indicate active irrigation or drainage issues.</p>
+                    </div>
+                </div>
+
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                     <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                        <Zap class="w-5 h-5 text-amber-500" />
+                        Recommendations
+                    </h3>
+                    <div v-if="irrigationNeeded" class="flex gap-3 items-start p-3 rounded bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 text-sm">
+                        <AlertTriangle class="w-5 h-5 shrink-0" />
+                        <div>
+                            <span class="font-bold">Watering Required!</span>
+                            <p class="mt-1">Moisture levels have dropped below optimal threshold (30%). Active irrigation system or manual watering suggested.</p>
+                        </div>
+                    </div>
+                    <div v-else class="flex gap-3 items-start p-3 rounded bg-emerald-50 dark:bg-emerald-900/10 text-emerald-700 dark:text-emerald-400 text-sm">
+                        <CheckCircle class="w-5 h-5 shrink-0" />
+                        <div>
+                            <span class="font-bold">Optimal Conditions</span>
+                            <p class="mt-1">Soil moisture is within healthy range for standard crops. No action needed.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
-      </div>
-    </div>
-  </AppLayout>
+    </AppLayout>
 </template>

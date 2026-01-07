@@ -1,251 +1,331 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { apiFetch } from '@/lib/api';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { type BreadcrumbItem } from '@/types';
 import { Line } from 'vue-chartjs';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  TimeScale
+} from 'chart.js';
+import { 
+    Zap, 
+    Activity, 
+    AlertTriangle,
+    CheckCircle,
+    Info,
+    Cpu,
+    BatteryCharging,
+    TrendingUp
+} from 'lucide-vue-next';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, TimeScale);
 
 interface SensorReading { value: number; timestamp: string }
-interface Sensor { id: number; node_id: string; name: string; type: string; unit: string; latest_value: number | null; latest_reading_at: string | null }
+interface Sensor { 
+    id: number; 
+    name: string; 
+    type: string; 
+    unit: string; 
+    latest_value: number | null; 
+    latest_reading_at: string | null 
+}
 
 const sensors = ref<Sensor[]>([]);
 const historicalData = ref<Record<number, SensorReading[]>>({});
-const stats24h = ref<{ sensor_type: string; avg: number; min: number; max: number; unit: string }[]>([]);
+const stats24h = ref<Record<string, { avg: number; min: number; max: number }>>({});
 const loading = ref(true);
+const chartPeriod = ref(6);
 let intervalId: number | null = null;
+const VOLTAGE = 230; // Assuming 230V standard EU/RO voltage for power calc
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Dashboard', href: '/dashboard' },
+    { title: 'Power Monitor', href: '/dashboard/acs' },
+];
+
+const periods = [
+    { label: '1H', value: 1 },
+    { label: '6H', value: 6 },
+    { label: '12H', value: 12 },
+    { label: '24H', value: 24 },
+];
 
 const isDark = computed(() => document.documentElement.classList.contains('dark'));
+const acsSensor = computed(() => sensors.value.find(s => s.type === 'curent' || s.name.toLowerCase().includes('acs') || s.type.toLowerCase().includes('acs')));
+const latestValue = computed(() => acsSensor.value?.latest_value ?? null);
+const readings = computed(() => acsSensor.value ? (historicalData.value[acsSensor.value.id] || []) : []);
+
+// Assuming the sensor sends Amperes directly. If invalid raw data, this might need adjustment.
+// Some ACS712 implementations send 512 + (Amps * Sens). We assume backend normalized to Amps.
+const currentAmps = computed(() => latestValue.value ?? 0);
+const currentPowerWatts = computed(() => currentAmps.value * VOLTAGE);
+
+// Determine Load Status
+const loadStatus = computed(() => {
+    const amps = currentAmps.value;
+    if (amps === 0) return { label: 'Idle / Off', color: 'text-gray-500', icon: Info, bg: 'bg-gray-50 dark:bg-zinc-800' };
+    
+    // Thresholds: Adjust based on expected load
+    if (amps < 0.5) return { label: 'Low Load', color: 'text-emerald-500', icon: CheckCircle, bg: 'bg-emerald-50 dark:bg-emerald-900/20' };
+    if (amps < 5) return { label: 'Normal Load', color: 'text-blue-500', icon: Zap, bg: 'bg-blue-50 dark:bg-blue-900/20' };
+    if (amps < 10) return { label: 'High Load', color: 'text-orange-500', icon: Activity, bg: 'bg-orange-50 dark:bg-orange-900/20' };
+    return { label: 'Overload Risk', color: 'text-red-500', icon: AlertTriangle, bg: 'bg-red-50 dark:bg-red-900/20' };
+});
 
 const chartOptions = computed(() => ({
-  responsive: true, maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { enabled: true } },
-  scales: { x: { display: true, grid: { display: false } }, y: { display: true, grid: { color: isDark.value ? 'rgba(51,65,85,.3)' : 'rgba(226,232,240,.8)' } } },
-  interaction: { intersect: false, mode: 'index' as const },
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: {
+            mode: 'index' as const,
+            intersect: false,
+            backgroundColor: isDark.value ? '#18181b' : '#ffffff',
+            titleColor: isDark.value ? '#f4f4f5' : '#18181b',
+            bodyColor: isDark.value ? '#a1a1aa' : '#52525b',
+            borderColor: isDark.value ? '#27272a' : '#e4e4e7',
+            borderWidth: 1,
+            callbacks: { 
+                label: (c:any) => `${c.parsed.y.toFixed(2)} A` 
+            }
+        }
+    },
+    scales: {
+        x: { display: false },
+        y: { 
+            display: true, 
+            grid: { color: isDark.value ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } 
+        }
+    },
+    elements: {
+        line: {
+            tension: 0.3,
+            borderWidth: 2,
+            borderColor: 'rgb(249, 115, 22)', // Orange-500
+            fill: true,
+            backgroundColor: (ctx: any) => {
+                const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 300);
+                gradient.addColorStop(0, 'rgba(249, 115, 22, 0.2)');
+                gradient.addColorStop(1, 'rgba(249, 115, 22, 0)');
+                return gradient;
+            }
+        },
+        point: { radius: 0, hoverRadius: 6 }
+    }
 }));
 
-const getChartColor = (alpha = 1) => `rgba(234,179,8,${alpha})`;
-const VOLTAGE = 230; // AC mains approximation
+const chartData = computed(() => {
+    const sorted = [...readings.value].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return {
+        labels: sorted.map(r => new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})),
+        datasets: [{
+            label: 'Current (Amps)',
+            data: sorted.map(r => r.value)
+        }]
+    };
+});
 
-const fetchSensors = async () => {
-  const res = await apiFetch('/api/sensors');
-  const json = await res.json();
-  if (json.success) sensors.value = (json.data as Sensor[]).filter(s => s.type === 'curent');
-  loading.value = false;
+// Power Spike Detection: Max value in period vs average
+const spikeFactor = computed(() => {
+    if (readings.value.length < 2) return 1;
+    const vals = readings.value.map(r => r.value);
+    const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const max = Math.max(...vals);
+    return avg > 0 ? (max / avg) : 1;
+});
+
+const estimatedCost = computed(() => {
+    // Determine average amps over chart period, convert to kWh cost
+    // Formula: Avg Amps * 230V / 1000 = kW * Hours * Price
+    if (readings.value.length === 0) return 0;
+    const vals = readings.value.map(r => r.value);
+    const avgAmps = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const avgKW = (avgAmps * VOLTAGE) / 1000;
+    const hours = chartPeriod.value;
+    const kwh = avgKW * hours;
+    const PRICE_PER_KWH = 1.3; // RON typical
+    return kwh * PRICE_PER_KWH;
+});
+
+
+const fetchData = async () => {
+    try {
+        const res = await apiFetch('/api/sensors');
+        const json = await res.json();
+        sensors.value = json.data ?? [];
+        await fetchHistory();
+        
+        const sRes = await apiFetch('/api/sensors/statistics?hours=24');
+        const sJson = await sRes.json();
+        if (sJson.success) {
+             sJson.data.forEach((st: any) => {
+                stats24h.value[st.sensor_type] = { avg: st.avg, min: st.min, max: st.max };
+            });
+        }
+    } catch (e) {
+        console.error("ACS fetch error", e);
+    } finally {
+        loading.value = false;
+    }
 };
 
-const fetchHistoricalData = async (sensorId: number) => {
-  const res = await apiFetch(`/api/sensors/${sensorId}/readings?hours=2&limit=30`);
-  const json = await res.json();
-  if (json.success) historicalData.value[sensorId] = json.data.readings as SensorReading[];
+const fetchHistory = async () => {
+    const limit = chartPeriod.value * 60; // Higher resolution for power
+    if (acsSensor.value) {
+        const res = await apiFetch(`/api/sensors/${acsSensor.value.id}/readings?hours=${chartPeriod.value}&limit=${limit}`);
+        const json = await res.json();
+        if (json.success) historicalData.value[acsSensor.value.id] = json.data.readings;
+    }
 };
 
-const fetchStats24h = async () => {
-  const res = await apiFetch('/api/sensors/statistics?hours=24');
-  const json = await res.json();
-  if (json.success) {
-    const only = (json.data as any[]).filter(s => s.sensor_type === 'curent');
-    stats24h.value = only;
-  }
-};
+watch(chartPeriod, fetchHistory);
 
-const getChartData = (sensorId: number) => {
-  const readings = historicalData.value[sensorId] || [];
-  return {
-    labels: readings.map(r => new Date(r.timestamp).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })).reverse(),
-    datasets: [{ data: readings.map(r => r.value).reverse(), borderColor: getChartColor(), backgroundColor: getChartColor(.1), tension: .4, fill: true, borderWidth: 2, pointRadius: 0 }]
-  };
-};
-
-const acsSensor = computed(() => sensors.value.find(s => s.type === 'curent'));
-const latestI = computed(() => acsSensor.value?.latest_value ?? null);
-const watts = computed(() => (latestI.value ?? 0) * VOLTAGE);
-
-// ascending time series for active sensor
-const series = computed(() => {
-  const id = acsSensor.value?.id; if (!id) return [] as SensorReading[];
-  return (historicalData.value[id] || []).slice().reverse();
+onMounted(() => {
+    fetchData();
+    intervalId = window.setInterval(fetchData, 10000); // Faster polling for electricity
 });
-
-// RMS on last 30 minutes
-const rms30 = computed(() => {
-  const now = Date.now();
-  const cutoff = now - 30 * 60 * 1000;
-  const vals = series.value.filter(r => new Date(r.timestamp).getTime() >= cutoff).map(r => r.value);
-  if (vals.length === 0) return null;
-  const meanSq = vals.reduce((a,b)=>a + b*b, 0) / vals.length;
-  return Math.sqrt(meanSq);
-});
-
-// Peak over last 2h
-const peak2h = computed(() => series.value.length ? Math.max(...series.value.map(r => r.value)) : null);
-
-// Energy over last 2h via trapezoidal integration (Wh), assuming PF≈1
-const energyWh2h = computed(() => {
-  const s = series.value; if (s.length < 2) return 0;
-  let wh = 0;
-  for (let i=1;i<s.length;i++){
-    const t0 = new Date(s[i-1].timestamp).getTime();
-    const t1 = new Date(s[i].timestamp).getTime();
-    const dtHours = Math.max(0, (t1 - t0) / 3600000);
-    const p0 = VOLTAGE * s[i-1].value; // W
-    const p1 = VOLTAGE * s[i].value;
-    const pAvg = (p0 + p1) / 2;
-    wh += pAvg * dtHours;
-  }
-  return Math.round(wh);
-});
-
-const estKWh24h = computed(() => {
-  // approximate: average power from last 2h scaled to 24h
-  const avgW = energyWh2h.value / 2; // Wh/2h -> W
-  const wh24 = avgW * 24;
-  return Math.max(0, wh24) / 1000;
-});
-
-// Current distribution (2h)
-const currentHistData = computed(() => {
-  const vals = series.value.map(r => r.value);
-  if (!vals.length) return { labels: [], counts: [] as number[] };
-  const edges = [0,0.5,1,2,3,5,8,10];
-  const counts = new Array(edges.length).fill(0);
-  for (const v of vals){
-    let idx = edges.findIndex((e, i) => i < edges.length-1 ? (v >= e && v < edges[i+1]) : v >= e);
-    if (idx === -1) idx = edges.length-1;
-    counts[idx]++;
-  }
-  const labels = edges.map((e,i) => i<edges.length-1 ? `${e}–${edges[i+1]} A` : `${e}+ A`);
-  return { labels, counts };
-});
-
-onMounted(async () => {
-  await fetchSensors();
-  sensors.value.forEach(s => fetchHistoricalData(s.id));
-  await fetchStats24h();
-  intervalId = window.setInterval(() => sensors.value.forEach(s => fetchHistoricalData(s.id)), 3000);
-});
-
-onUnmounted(() => { if (intervalId) clearInterval(intervalId) });
+onUnmounted(() => { if (intervalId) clearInterval(intervalId); });
 </script>
 
 <template>
-  <AppLayout>
-    <Head title="ACS712 • Curent" />
-    <div class="min-h-screen bg-white dark:bg-black">
-      <div class="container mx-auto px-6 py-8 max-w-7xl">
-        <div class="mb-6">
-          <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-            <span>⚡</span> ACS712 • Curent & Consum
-          </h1>
-          <p class="text-sm text-slate-600 dark:text-slate-400">Monitorizare curent AC și consum estimat</p>
-        </div>
+    <Head title="Power Monitor" />
 
-        <div v-if="loading" class="py-20 text-center text-slate-500">Încărcare...</div>
-
-        <div v-else class="space-y-8">
-          <!-- KPIs -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Curent</CardTitle></CardHeader>
-              <CardContent class="flex items-end justify-between">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-4xl font-black">{{ latestI?.toFixed(2) ?? '--' }}</span>
-                  <span class="text-sm opacity-70">A</span>
+    <AppLayout :breadcrumbs="breadcrumbs">
+        <div class="flex flex-1 flex-col gap-6 p-4">
+            
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Zap class="w-6 h-6 text-orange-500" />
+                        Power Consumption Analysis
+                    </h2>
+                    <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                        Real-time electrical current monitoring (ACS712)
+                    </p>
                 </div>
-                <div class="text-right text-xs text-slate-500">
-                  <div>Ultima</div>
-                  <div class="font-medium">{{ acsSensor?.latest_reading_at ? new Date(acsSensor.latest_reading_at).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : '--' }}</div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Putere (PF≈1)</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ Math.round(watts) }} <span class="text-sm font-semibold opacity-70">W</span></div>
-                <div class="text-xs text-slate-500">La {{ VOLTAGE }}V</div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">RMS (30 min)</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ rms30?.toFixed(2) ?? '--' }} <span class="text-sm font-semibold opacity-70">A</span></div>
-                <div class="text-xs text-slate-500">Curent eficace</div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Vârf (2h)</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ peak2h?.toFixed(2) ?? '--' }} <span class="text-sm font-semibold opacity-70">A</span></div>
-                <div class="text-xs text-slate-500">Maxim ultimelor 2 ore</div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Energie (2h)</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ energyWh2h }} <span class="text-sm font-semibold opacity-70">Wh</span></div>
-                <div class="text-xs text-slate-500">Est. 24h: {{ estKWh24h.toFixed(2) }} kWh</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <!-- Trend (2h) -->
-          <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-            <CardHeader class="pb-1">
-              <CardTitle class="text-lg font-bold">Tendință curent (2h)</CardTitle>
-              <CardDescription>Linie cu umplere</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div class="h-48 bg-slate-50 dark:bg-zinc-900 rounded-lg p-2">
-                <Line v-if="acsSensor?.id && historicalData[acsSensor.id]" :data="getChartData(acsSensor.id)" :options="chartOptions" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <!-- Reports -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950 lg:col-span-2">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Raport 24h</CardTitle>
-                <CardDescription>Medie, minim, maxim</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                    <div class="text-xs text-slate-500">Curent</div>
-                    <div class="mt-1 text-sm">
-                      <div>Medie: <span class="font-semibold">{{ stats24h[0]?.avg?.toFixed(2) ?? '--' }}</span> A</div>
-                      <div>Min: <span class="font-semibold">{{ stats24h[0]?.min?.toFixed(2) ?? '--' }}</span> A</div>
-                      <div>Max: <span class="font-semibold">{{ stats24h[0]?.max?.toFixed(2) ?? '--' }}</span> A</div>
+                 <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1 bg-white dark:bg-zinc-900 p-1 rounded-lg border border-gray-200 dark:border-zinc-800 shadow-sm">
+                        <button v-for="p in periods" :key="p.value" @click="chartPeriod = p.value"
+                            :class="['px-3 py-1 text-xs font-medium rounded-md transition-colors', chartPeriod === p.value ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400']">
+                            {{ p.label }}
+                        </button>
                     </div>
-                  </div>
                 </div>
-              </CardContent>
-            </Card>
+            </div>
 
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950 lg:col-span-1">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Distribuție (2h)</CardTitle>
-                <CardDescription>Benzi curent</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div class="text-xs text-slate-500" v-if="!currentHistData.labels.length">Insuficiente date</div>
-                <div class="grid grid-cols-1 gap-1" v-else>
-                  <div v-for="(label,idx) in currentHistData.labels" :key="'c'+idx" class="flex items-center gap-2">
-                    <div class="w-24 text-xs text-slate-600 dark:text-slate-400">{{ label }}</div>
-                    <div class="flex-1 h-2 bg-slate-200 dark:bg-zinc-900 rounded">
-                      <div class="h-2 rounded bg-yellow-500" :style="{ width: Math.min((currentHistData.counts[idx] / Math.max(...currentHistData.counts)) * 100, 100) + '%' }"></div>
+            <!-- Overview Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <!-- Status Card -->
+                <div :class="['md:col-span-1 rounded-xl border p-6 shadow-sm flex flex-col justify-between', loadStatus.bg, 'border-transparent']">
+                    <div>
+                         <p class="text-sm font-medium opacity-70 uppercase tracking-wider mb-2">Load Status</p>
+                         <h3 :class="['text-2xl font-bold flex items-center gap-2', loadStatus.color]">
+                            {{ loadStatus.label }}
+                         </h3>
                     </div>
-                    <div class="w-8 text-right text-xs">{{ currentHistData.counts[idx] }}</div>
-                  </div>
+                    <div class="mt-4">
+                        <component :is="loadStatus.icon" :class="['w-10 h-10', loadStatus.color]" />
+                    </div>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+
+                <!-- Metrics -->
+                <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+                     <!-- Current -->
+                    <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-4 flex flex-col justify-center">
+                        <div class="text-gray-500 text-xs uppercase font-medium mb-1">Current (I)</div>
+                        <div class="text-3xl font-bold text-gray-900 dark:text-white">
+                            {{ currentAmps.toFixed(2) }} <span class="text-lg text-gray-400 font-normal">A</span>
+                        </div>
+                    </div>
+                    <!-- Est Power -->
+                    <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-4 flex flex-col justify-center">
+                        <div class="text-gray-500 text-xs uppercase font-medium mb-1">Power (P)</div>
+                        <div class="text-3xl font-bold text-gray-900 dark:text-white">
+                            {{ currentPowerWatts.toFixed(0) }} <span class="text-lg text-gray-400 font-normal">W</span>
+                        </div>
+                         <div class="text-xs text-gray-400 mt-1">@ {{VOLTAGE}}V est.</div>
+                    </div>
+                     <!-- Est Cost -->
+                    <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-4 flex flex-col justify-center">
+                        <div class="text-gray-500 text-xs uppercase font-medium mb-1">Est. Cost ({{chartPeriod}}h)</div>
+                        <div class="text-3xl font-bold text-gray-900 dark:text-white">
+                            {{ estimatedCost.toFixed(2) }} <span class="text-lg text-gray-400 font-normal">RON</span>
+                        </div>
+                        <div class="text-xs text-gray-400 mt-1">~1.3 RON/kWh</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Chart -->
+             <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm flex flex-col">
+                <div class="p-6 border-b border-gray-100 dark:border-zinc-800">
+                    <h3 class="font-semibold text-gray-900 dark:text-white">Current Usage Trend</h3>
+                </div>
+                <div class="flex-1 min-h-[300px] relative p-4">
+                    <Line :data="chartData" :options="chartOptions" />
+                </div>
+            </div>
+
+            <!-- Analytics Footer -->
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                    <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                        <Activity class="w-5 h-5 text-indigo-500" />
+                        Peak & Spike Analysis
+                    </h3>
+                    <div class="flex items-center gap-4">
+                        <div class="text-slate-900 dark:text-white">
+                            <span class="text-2xl font-bold">{{ stats24h[acsSensor?.type]?.max.toFixed(2) ?? 0 }} A</span>
+                            <span class="text-sm text-gray-500 ml-2">24h Peak</span>
+                        </div>
+                        <div class="h-8 w-px bg-gray-200 dark:bg-zinc-700 mx-2"></div>
+                        <div class="text-slate-900 dark:text-white">
+                            <span class="text-2xl font-bold">x{{ spikeFactor.toFixed(1) }}</span>
+                            <span class="text-sm text-gray-500 ml-2">Spike Factor</span>
+                        </div>
+                    </div>
+                     <p class="text-sm text-gray-500 mt-3">High spike factor (>3.0) indicates inductive loads (motors, compressors) starting up.</p>
+                </div>
+
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                     <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                        <BatteryCharging class="w-5 h-5 text-green-500" />
+                        Efficiency Insight
+                    </h3>
+                    <div v-if="currentAmps < 0.1 && currentAmps > 0.01" class="flex gap-3 items-start p-3 rounded bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400 text-sm">
+                        <Info class="w-5 h-5 shrink-0" />
+                        <div>
+                            <span class="font-bold">Phantom Load Detected?</span>
+                            <p class="mt-1">Very low current detected. Check for devices in standby mode consuming power unnecessarily.</p>
+                        </div>
+                    </div>
+                    <div v-else-if="currentAmps > 10" class="flex gap-3 items-start p-3 rounded bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 text-sm">
+                        <AlertTriangle class="w-5 h-5 shrink-0" />
+                        <div>
+                            <span class="font-bold">High Consumption!</span>
+                            <p class="mt-1">System is running near capacity. Ensure cabling is rated for >10A to prevent overheating.</p>
+                        </div>
+                    </div>
+                     <div v-else class="flex gap-3 items-start p-3 rounded bg-blue-50 dark:bg-blue-900/10 text-blue-700 dark:text-blue-400 text-sm">
+                        <CheckCircle class="w-5 h-5 shrink-0" />
+                        <div>
+                            <span class="font-bold">Normal Operation</span>
+                            <p class="mt-1">Current consumption is within expected parameters for standard household appliances.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
-      </div>
-    </div>
-  </AppLayout>
+    </AppLayout>
 </template>

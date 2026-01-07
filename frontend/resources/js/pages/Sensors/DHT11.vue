@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { apiFetch } from '@/lib/api';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { type BreadcrumbItem } from '@/types';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -16,553 +15,648 @@ import {
   Tooltip,
   Legend,
   Filler,
-  BarElement
+  TimeScale
 } from 'chart.js';
+import { 
+    Thermometer, 
+    Droplets, 
+    Sun, 
+    CloudFog, 
+    Activity,
+    ArrowUp,
+    ArrowDown,
+    Minus,
+    Smile,
+    Frown,
+    Meh,
+    Zap,
+    Wind,
+    Info,
+    TrendingUp,
+    TrendingDown,
+    RefreshCw
+} from 'lucide-vue-next';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, BarElement);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, TimeScale);
 
+// --- Interfaces ---
 interface SensorReading { value: number; timestamp: string }
-interface Sensor { id: number; node_id: string; name: string; type: string; unit: string; latest_value: number | null; latest_reading_at: string | null }
+interface Sensor { 
+    id: number; 
+    name: string; 
+    type: string; 
+    unit: string; 
+    latest_value: number | null; 
+    latest_reading_at: string | null 
+}
 
+// --- State ---
 const sensors = ref<Sensor[]>([]);
 const historicalData = ref<Record<number, SensorReading[]>>({});
-const stats24h = ref<{ sensor_type: string; avg: number; min: number; max: number; unit: string }[]>([]);
+const stats24h = ref<Record<string, { avg: number; min: number; max: number }>>({});
 const loading = ref(true);
-const showSmoothing = ref(true);
-const smoothingWindow = ref(5);
+const chartPeriod = ref(6); // Default 6 hours
 let intervalId: number | null = null;
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Dashboard', href: '/dashboard' },
+    { title: 'Environment (DHT11)', href: '/dashboard/dht11' },
+];
+
+const periods = [
+    { label: '1H', value: 1 },
+    { label: '6H', value: 6 },
+    { label: '12H', value: 12 },
+    { label: '24H', value: 24 },
+];
 
 const isDark = computed(() => document.documentElement.classList.contains('dark'));
 
-const chartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { enabled: true } },
-  scales: {
-    x: { display: true, grid: { display: false } },
-    y: { display: true, grid: { color: isDark.value ? 'rgba(51,65,85,.3)' : 'rgba(226,232,240,.8)' } },
-  },
-  interaction: { intersect: false, mode: 'index' as const },
-}));
-
-const getChartColor = (type: string, alpha = 1) => ({
-  temperatura: `rgba(239,68,68,${alpha})`,
-  umiditate: `rgba(59,130,246,${alpha})`,
-}[type] || `rgba(107,114,128,${alpha})`);
-
-const getSensorIcon = (type: string) => ({ temperatura: '🌡️', umiditate: '💧' }[type] || '📊');
-const sortByTimestamp = (arr: SensorReading[]) => arr.slice().sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-const movingAverage = (values: Array<number | null>, window = 5) => {
-  const out: Array<number | null> = [];
-  const buf: number[] = [];
-  for (const v of values) {
-    if (v == null) {
-      out.push(null);
-      continue;
+// --- Chart Options ---
+const getChartOptions = (color: string) => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: {
+            mode: 'index' as const,
+            intersect: false,
+            backgroundColor: isDark.value ? '#18181b' : '#ffffff',
+            titleColor: isDark.value ? '#f4f4f5' : '#18181b',
+            bodyColor: isDark.value ? '#a1a1aa' : '#52525b',
+            borderColor: isDark.value ? '#27272a' : '#e4e4e7',
+            borderWidth: 1,
+            padding: 10,
+            displayColors: false,
+            callbacks: {
+                label: (context: any) => `${context.parsed.y.toFixed(1)}`
+            }
+        }
+    },
+    scales: {
+        x: {
+            display: false,
+        },
+        y: {
+            display: true,
+            grid: {
+                color: isDark.value ? 'rgba(39, 39, 42, 0.5)' : 'rgba(228, 228, 231, 0.5)',
+                drawBorder: false,
+            },
+            ticks: {
+                color: isDark.value ? '#71717a' : '#a1a1aa',
+                font: { size: 10 }
+            }
+        }
+    },
+    interaction: {
+        mode: 'nearest' as const,
+        axis: 'x' as const,
+        intersect: false
+    },
+    elements: {
+        line: {
+            tension: 0.4,
+            borderWidth: 2,
+            borderColor: color,
+            backgroundColor: (context: any) => {
+                const ctx = context.chart.ctx;
+                const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+                if (color.startsWith('rgb')) {
+                    gradient.addColorStop(0, color.replace('rgb', 'rgba').replace(')', ', 0.2)'));
+                    gradient.addColorStop(1, color.replace('rgb', 'rgba').replace(')', ', 0)'));
+                } else {
+                    gradient.addColorStop(0, color);
+                    gradient.addColorStop(1, color);
+                }
+                return gradient;
+            },
+            fill: true,
+        },
+        point: {
+            radius: 0,
+            hoverRadius: 4,
+            backgroundColor: color
+        }
     }
-    buf.push(v);
-    if (buf.length > window) buf.shift();
-    out.push(buf.reduce((a,b) => a+b, 0) / buf.length);
-  }
-  return out;
-};
-const rollingStats = (readings: SensorReading[], minutes = 30) => {
-  const cutoff = Date.now() - minutes * 60_000;
-  const recent = sortByTimestamp(readings).filter(r => new Date(r.timestamp).getTime() >= cutoff);
-  if (!recent.length) return null;
-  const vals = recent.map(r => r.value);
-  const avg = vals.reduce((a,b) => a+b, 0) / vals.length;
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const delta = vals[vals.length - 1] - vals[0];
-  return { avg, min, max, delta, count: vals.length };
-};
-const zScoreForLatest = (readings: SensorReading[]) => {
-  if (!readings.length) return null;
-  const vals = readings.map(r => r.value);
-  const mean = vals.reduce((a,b)=>a+b,0) / vals.length;
-  const variance = vals.reduce((acc,v)=>acc + (v-mean)**2, 0) / Math.max(vals.length-1, 1);
-  const std = Math.sqrt(variance);
-  const latest = vals[vals.length-1];
-  if (!std) return 0;
-  return (latest - mean) / std;
-};
-const slopePerMinute = (readings: SensorReading[], minutes = 10) => {
-  const cutoff = Date.now() - minutes * 60_000;
-  const recent = sortByTimestamp(readings).filter(r => new Date(r.timestamp).getTime() >= cutoff);
-  if (recent.length < 2) return null;
-  const start = recent[0], end = recent[recent.length-1];
-  const deltaMinutes = (new Date(end.timestamp).getTime() - new Date(start.timestamp).getTime()) / 60_000;
-  if (deltaMinutes <= 0) return null;
-  return (end.value - start.value) / deltaMinutes;
-};
+});
 
-// --- Derived metrics ---
+// --- Computed Metrics ---
 const tempSensor = computed(() => sensors.value.find(s => s.type === 'temperatura'));
 const humSensor = computed(() => sensors.value.find(s => s.type === 'umiditate'));
 
 const latestTemp = computed(() => tempSensor.value?.latest_value ?? null);
 const latestHum = computed(() => humSensor.value?.latest_value ?? null);
 
-// Heat index in Celsius
-function heatIndexC(tempC: number, rh: number): number {
-  if (isNaN(tempC) || isNaN(rh)) return NaN;
-  const T = tempC * 9/5 + 32; // to F
-  const R = rh;
-  const HI = -42.379 + 2.04901523*T + 10.14333127*R - 0.22475541*T*R - 0.00683783*T*T - 0.05481717*R*R + 0.00122874*T*T*R + 0.00085282*T*R*R - 0.00000199*T*T*R*R;
-  return (HI - 32) * 5/9; // back to C
+const tempReadings = computed(() => tempSensor.value ? (historicalData.value[tempSensor.value.id] || []) : []);
+const humReadings = computed(() => humSensor.value ? (historicalData.value[humSensor.value.id] || []) : []);
+
+// --- Environmental Calculations ---
+function calculateHeatIndex(temp: number, rh: number): number {
+    if (!temp || !rh) return 0;
+    const T = temp * 9/5 + 32;
+    const R = rh;
+    const HI = -42.379 + 2.04901523*T + 10.14333127*R - 0.22475541*T*R - 0.00683783*T*T - 0.05481717*R*R + 0.00122874*T*T*R + 0.00085282*T*R*R - 0.00000199*T*T*R*R;
+    return (HI - 32) * 5/9;
 }
 
-// Dew point in Celsius (Magnus)
-function dewPointC(tempC: number, rh: number): number {
-  if (isNaN(tempC) || isNaN(rh) || rh <= 0) return NaN;
-  const a = 17.27, b = 237.7;
-  const gamma = (a * tempC) / (b + tempC) + Math.log(rh/100);
-  return (b * gamma) / (a - gamma);
+function calculateDewPoint(temp: number, rh: number): number {
+    if (!temp || !rh) return 0;
+    const a = 17.27, b = 237.7;
+    const gamma = (a * temp) / (b + temp) + Math.log(rh/100);
+    return (b * gamma) / (a - gamma);
 }
 
-function comfortLevel(tempC?: number | null, rh?: number | null): string {
-  if (tempC == null || rh == null) return 'N/A';
-  if (tempC >= 26 && rh >= 60) return 'Foarte cald și umed';
-  if (tempC >= 24 && rh >= 50) return 'Cald și umed';
-  if (tempC >= 21 && rh <= 40) return 'Uscat';
-  if (tempC >= 20 && rh >= 40 && rh <= 60) return 'Confortabil';
-  if (tempC < 18 && rh > 60) return 'Răcoros și umed';
-  return 'Neutral';
+function calculateAbsoluteHumidity(temp: number, rh: number): number {
+    // Returns g/m³
+    if (!temp || !rh) return 0;
+    const e = 6.112 * Math.exp((17.67 * temp) / (temp + 243.5));
+    const numerator = 216.7 * (rh * e / 100);
+    const denominator = 273.15 + temp;
+    return numerator / denominator;
 }
 
-const fetchSensors = async () => {
-  const res = await apiFetch('/api/sensors');
-  const json = await res.json();
-  if (json.success) {
-    // Only DHT11 metrics: temperatura + umiditate
-    sensors.value = (json.data as Sensor[]).filter(s => s.type === 'temperatura' || s.type === 'umiditate');
-  }
-  loading.value = false;
-};
+const heatIndex = computed(() => (latestTemp.value && latestHum.value) ? calculateHeatIndex(latestTemp.value, latestHum.value) : null);
+const dewPoint = computed(() => (latestTemp.value && latestHum.value) ? calculateDewPoint(latestTemp.value, latestHum.value) : null);
+const absoluteHum = computed(() => (latestTemp.value && latestHum.value) ? calculateAbsoluteHumidity(latestTemp.value, latestHum.value) : null);
 
-const fetchHistoricalData = async (sensorId: number) => {
-  const res = await apiFetch(`/api/sensors/${sensorId}/readings?hours=2&limit=30`);
-  const json = await res.json();
-  if (json.success) historicalData.value[sensorId] = json.data.readings as SensorReading[];
-};
-
-const fetchStats24h = async () => {
-  const res = await apiFetch('/api/sensors/statistics?hours=24');
-  const json = await res.json();
-  if (json.success) {
-    const only = (json.data as any[]).filter(s => s.sensor_type === 'temperatura' || s.sensor_type === 'umiditate');
-    stats24h.value = only;
-  }
-};
-
-const getChartData = (sensorId: number) => {
-  const readings = historicalData.value[sensorId] || [];
-  return {
-    labels: readings.map(r => new Date(r.timestamp).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })).reverse(),
-    datasets: [{
-      data: readings.map(r => r.value).reverse(),
-      borderColor: getChartColor(sensors.value.find(s => s.id === sensorId)?.type || ''),
-      backgroundColor: getChartColor(sensors.value.find(s => s.id === sensorId)?.type || '', 0.1),
-      tension: 0.4, fill: true, borderWidth: 2, pointRadius: 0
-    }]
-  };
-};
-
-onMounted(async () => {
-  await fetchSensors();
-  sensors.value.forEach(s => fetchHistoricalData(s.id));
-  await fetchStats24h();
-  intervalId = window.setInterval(() => sensors.value.forEach(s => fetchHistoricalData(s.id)), 3000);
+const comfortStatus = computed(() => {
+    const t = latestTemp.value;
+    const h = latestHum.value;
+    if (t === null || h === null) return { label: 'Unknown', color: 'text-gray-500', icon: Minus, bg: 'bg-gray-100 dark:bg-zinc-800' };
+    
+    if (t >= 28 && h >= 60) return { label: 'Tropical', color: 'text-rose-500', icon: Frown, bg: 'bg-rose-100 dark:bg-rose-900/20' };
+    if (t >= 24 && h >= 50) return { label: 'Warm & Humid', color: 'text-orange-500', icon: Meh, bg: 'bg-orange-100 dark:bg-orange-900/20' };
+    if (t >= 21 && h <= 40) return { label: 'Dry', color: 'text-yellow-500', icon: Sun, bg: 'bg-yellow-100 dark:bg-yellow-900/20' };
+    if (t >= 20 && h >= 40 && h <= 60) return { label: 'Optimal', color: 'text-emerald-500', icon: Smile, bg: 'bg-emerald-100 dark:bg-emerald-900/20' };
+    if (t < 18 && h > 60) return { label: 'Cold & Damp', color: 'text-cyan-500', icon: CloudFog, bg: 'bg-cyan-100 dark:bg-cyan-900/20' };
+    return { label: 'Neutral', color: 'text-blue-500', icon: Meh, bg: 'bg-blue-100 dark:bg-blue-900/20' };
 });
 
-onUnmounted(() => { if (intervalId) clearInterval(intervalId) });
+// --- Simple Trend Analysis ---
+function calculateTrend(readings: SensorReading[]) {
+    if (readings.length < 5) return { direction: 'stable', value: 0 };
+    
+    // Simple slope of last 5 points
+    const recent = readings.slice(-5);
+    const latest = recent[recent.length-1].value;
+    const first = recent[0].value;
+    const diff = latest - first;
+    
+    // Thresholds per minute (approx, assuming 30s-1m updates this is crude but effective for demo)
+    if (Math.abs(diff) < 0.2) return { direction: 'stable', value: diff };
+    return { direction: diff > 0 ? 'rising' : 'falling', value: Math.abs(diff) };
+}
 
-// --- Chart helpers ---
-const alignByNearest = (base: SensorReading[], other: SensorReading[], toleranceSec = 90) => {
-  const out: Array<{ t: string; base: number | null; other: number | null }> = [];
-  const others = other.map(r => ({ ts: new Date(r.timestamp).getTime(), v: r.value }));
-  for (const r of base) {
-    const ts = new Date(r.timestamp).getTime();
-    let nearest: number | null = null;
-    let minDiff = Infinity;
-    for (const o of others) {
-      const diff = Math.abs(o.ts - ts);
-      if (diff < minDiff) { minDiff = diff; nearest = o.v; }
+const tempTrend = computed(() => calculateTrend(tempReadings.value));
+const humTrend = computed(() => calculateTrend(humReadings.value));
+
+// --- Recommendations System ---
+const recommendations = computed(() => {
+    const recs = [];
+    const t = latestTemp.value;
+    const h = latestHum.value;
+
+    if (t && h) {
+        if (h > 65) recs.push({ type: 'warning', text: 'High humidity detected. Mold risk increased. Consider ventilation.' });
+        if (h < 30) recs.push({ type: 'warning', text: 'Air is too dry. May cause respiratory discomfort.' });
+        if (t > 28) recs.push({ type: 'alert', text: 'High temperature. Ensure cooling is active.' });
+        if (dewPoint.value && dewPoint.value > 20) recs.push({ type: 'info', text: 'Dew point is high. It feels oppressive.' });
     }
-    if (minDiff/1000 <= toleranceSec) {
-      out.push({ t: r.timestamp, base: r.value, other: nearest });
-    } else {
-      out.push({ t: r.timestamp, base: r.value, other: null });
-    }
-  }
-  return out;
+    return recs;
+});
+
+// --- Chart Data Generators ---
+const getChartData = (readings: SensorReading[], label: string, color: string) => {
+    const sorted = [...readings].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return {
+        labels: sorted.map(r => new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+        datasets: [{
+            label,
+            data: sorted.map(r => r.value),
+            borderColor: color,
+            fill: true,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+        }]
+    };
 };
 
-const combinedSeries = computed(() => {
-  const tId = tempSensor.value?.id; const hId = humSensor.value?.id;
-  if (!tId || !hId) return { labels: [], temp: [], hum: [] };
-  const t = sortByTimestamp(historicalData.value[tId] || []);
-  const h = sortByTimestamp(historicalData.value[hId] || []);
-  const aligned = alignByNearest(t, h);
-  const labels = aligned.map(x => new Date(x.t).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
-  const temp = aligned.map(x => x.base);
-  const hum = aligned.map(x => x.other);
-  return { labels, temp, hum };
+const tempChartData = computed(() => getChartData(tempReadings.value, 'Temperature', 'rgb(249, 115, 22)'));
+const humChartData = computed(() => getChartData(humReadings.value, 'Humidity', 'rgb(59, 130, 246)'));
+
+// --- Advanced Data Processing & Analytics ---
+
+// 1. Pearson Correlation Coefficient (Temperature vs Humidity)
+// Returns value between -1 and 1. Close to -1 means strong inverse relationship (normal for weather).
+const correlation = computed(() => {
+    // We need to pair data points by timestamp approx
+    const tReadings = tempReadings.value;
+    const hReadings = humReadings.value;
+    if (!tReadings.length || !hReadings.length) return 0;
+
+    // Simple pairing by index if lengths match (assuming same sampling rate), 
+    // or better, map one to another. For simplicity here, we assume arrays are largely synchronous
+    // or just take the min length.
+    const len = Math.min(tReadings.length, hReadings.length);
+    if (len < 5) return 0;
+
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    for (let i = 0; i < len; i++) {
+        const x = tReadings[i].value;
+        const y = hReadings[i].value; // Ideally we'd match timestamps here
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumX2 += x * x;
+        sumY2 += y * y;
+    }
+
+    const numerator = (len * sumXY) - (sumX * sumY);
+    const denominator = Math.sqrt((len * sumX2 - sumX * sumX) * (len * sumY2 - sumY * sumY));
+    
+    return denominator === 0 ? 0 : numerator / denominator;
 });
 
-const combinedChartData = computed(() => ({
-  labels: combinedSeries.value.labels,
-  datasets: [
-    {
-      label: 'Temperatură (°C)',
-      data: combinedSeries.value.temp,
-      borderColor: getChartColor('temperatura'),
-      backgroundColor: getChartColor('temperatura', .1),
-      yAxisID: 'yTemp', tension: .4, borderWidth: 2, pointRadius: 0, spanGaps: true,
-    },
-    {
-      label: 'Umiditate (%)',
-      data: combinedSeries.value.hum,
-      borderColor: getChartColor('umiditate'),
-      backgroundColor: getChartColor('umiditate', .1),
-      yAxisID: 'yHum', tension: .4, borderWidth: 2, pointRadius: 0, spanGaps: true,
-    },
-  ]
-}));
-
-const smoothedCombinedData = computed(() => {
-  const labels = combinedSeries.value.labels;
-  const temp = movingAverage(combinedSeries.value.temp, smoothingWindow.value);
-  const hum = movingAverage(combinedSeries.value.hum, smoothingWindow.value);
-  return {
-    labels,
-    datasets: [
-      {
-        label: `Temp medie mobila (${smoothingWindow.value})`,
-        data: temp,
-        borderColor: 'rgba(239,68,68,0.7)',
-        backgroundColor: 'rgba(239,68,68,0.08)',
-        yAxisID: 'yTemp',
-        borderWidth: 2,
-        pointRadius: 0,
-        borderDash: [6,4],
-        spanGaps: true,
-        tension: .25,
-      },
-      {
-        label: `Umid medie mobila (${smoothingWindow.value})`,
-        data: hum,
-        borderColor: 'rgba(59,130,246,0.7)',
-        backgroundColor: 'rgba(59,130,246,0.08)',
-        yAxisID: 'yHum',
-        borderWidth: 2,
-        pointRadius: 0,
-        borderDash: [6,4],
-        spanGaps: true,
-        tension: .25,
-      }
-    ]
-  };
+const correlationDescription = computed(() => {
+    const r = correlation.value;
+    if (Math.abs(r) < 0.3) return { text: "No significant correlation", color: "text-gray-500" };
+    if (r > 0) return { text: "Positive Correlation (Unusual)", color: "text-amber-500" };
+    return { text: "Inverse Correlation (Normal)", color: "text-emerald-500" };
 });
 
-const combinedChartWithOverlay = computed(() => ({
-  labels: combinedSeries.value.labels,
-  datasets: [
-    ...combinedChartData.value.datasets,
-    ...(showSmoothing.value ? smoothedCombinedData.value.datasets : []),
-  ]
-}));
+// 2. Volatility Analysis (Standard Deviation)
+const calculateStdDev = (readings: SensorReading[]) => {
+    if (readings.length < 2) return 0;
+    const values = readings.map(r => r.value);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+    return Math.sqrt(variance);
+};
 
-const tempStats30 = computed(() => tempSensor.value?.id ? rollingStats(historicalData.value[tempSensor.value.id] || [], 30) : null);
-const humStats30 = computed(() => humSensor.value?.id ? rollingStats(historicalData.value[humSensor.value.id] || [], 30) : null);
-const tempSlope = computed(() => tempSensor.value?.id ? slopePerMinute(historicalData.value[tempSensor.value.id] || [], 10) : null);
-const humSlope = computed(() => humSensor.value?.id ? slopePerMinute(historicalData.value[humSensor.value.id] || [], 10) : null);
-const tempZ = computed(() => tempSensor.value?.id ? zScoreForLatest(sortByTimestamp(historicalData.value[tempSensor.value.id] || [])) : null);
-const humZ = computed(() => humSensor.value?.id ? zScoreForLatest(sortByTimestamp(historicalData.value[humSensor.value.id] || [])) : null);
+const tempVolatility = computed(() => calculateStdDev(tempReadings.value));
+const humVolatility = computed(() => calculateStdDev(humReadings.value));
 
-const liveAlerts = computed(() => {
-  const alerts: string[] = [];
-  if (latestTemp.value != null && latestTemp.value >= 30) alerts.push('Temperatură ridicată');
-  if (latestTemp.value != null && latestTemp.value <= 5) alerts.push('Temperatură scăzută');
-  if (latestHum.value != null && latestHum.value >= 75) alerts.push('Umiditate ridicată');
-  if (latestHum.value != null && latestHum.value <= 25) alerts.push('Umiditate scăzută');
-  if (tempSlope.value != null && Math.abs(tempSlope.value) >= 0.5) alerts.push('Variație rapidă temperatură');
-  if (humSlope.value != null && Math.abs(humSlope.value) >= 1) alerts.push('Variație rapidă umiditate');
-  return alerts;
+// 3. Peak Time Analysis
+const getPeakInfo = (readings: SensorReading[]) => {
+    if (!readings.length) return { min: null, max: null };
+    let min = readings[0], max = readings[0];
+    for (const r of readings) {
+        if (r.value < min.value) min = r;
+        if (r.value > max.value) max = r;
+    }
+    return { min, max };
+};
+
+const tempPeaks = computed(() => getPeakInfo(tempReadings.value));
+
+
+const fetchData = async () => {
+    try {
+        const res = await apiFetch('/api/sensors');
+        const json = await res.json();
+        sensors.value = json.data?.filter((s:any) => ['temperatura', 'umiditate'].includes(s.type)) ?? [];
+        
+        await fetchHistory();
+
+        // Fetch Stats
+        const statsRes = await apiFetch('/api/sensors/statistics?hours=24');
+        const statsJson = await statsRes.json();
+        if (statsJson.success) {
+            statsJson.data.forEach((st: any) => {
+                stats24h.value[st.sensor_type] = { avg: st.avg, min: st.min, max: st.max };
+            });
+        }
+    } catch (e) {
+        console.error("Error fetching DHT11 data", e);
+    } finally {
+        loading.value = false;
+    }
+};
+
+const fetchHistory = async () => {
+     // Fetch history for charts based on selected period and limit based on density needed
+     // 1h -> need ~60 points. 24h -> need ~200 points to not overload chart
+     const limit = chartPeriod.value * 20; 
+     for (const s of sensors.value) {
+        const hRes = await apiFetch(`/api/sensors/${s.id}/readings?hours=${chartPeriod.value}&limit=${limit}`);
+        const hJson = await hRes.json();
+        if (hJson.success) {
+            historicalData.value[s.id] = hJson.data.readings;
+        }
+    }
+}
+
+watch(chartPeriod, () => {
+    fetchHistory();
 });
 
-const dualAxesOptions = computed((): any => ({
-  ...chartOptions.value,
-  plugins: { ...chartOptions.value.plugins, legend: { display: true } },
-  scales: {
-    x: { ...(chartOptions.value as any).scales?.x },
-    yTemp: { type: 'linear' as const, position: 'left' as const, grid: { display: false } },
-    yHum: { type: 'linear' as const, position: 'right' as const, grid: { display: false } },
-  }
-}));
-
-const heatIndexSeries = computed(() => {
-  const tId = tempSensor.value?.id; const hId = humSensor.value?.id;
-  if (!tId || !hId) return { labels: [], hi: [] as (number|null)[] };
-  const t = sortByTimestamp(historicalData.value[tId] || []);
-  const h = sortByTimestamp(historicalData.value[hId] || []);
-  const aligned = alignByNearest(t, h);
-  const labels = aligned.map(x => new Date(x.t).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
-  const hi = aligned.map(x => (x.base != null && x.other != null) ? heatIndexC(x.base, x.other) : null);
-  return { labels, hi };
+onMounted(() => {
+    fetchData();
+    intervalId = window.setInterval(fetchData, 30000);
 });
 
-const heatIndexChartData = computed(() => ({
-  labels: heatIndexSeries.value.labels,
-  datasets: [{
-    label: 'Heat Index (°C)',
-    data: heatIndexSeries.value.hi,
-    borderColor: 'rgba(245,158,11,1)',
-    backgroundColor: 'rgba(245,158,11,0.15)',
-    tension: .4, borderWidth: 2, pointRadius: 0, spanGaps: true, fill: true,
-  }]
-}));
-
-const tempHistData = computed(() => {
-  const tId = tempSensor.value?.id; if (!tId) return { labels: [], counts: [] };
-  const vals = (historicalData.value[tId] || []).map(r => r.value);
-  if (vals.length === 0) return { labels: [], counts: [] };
-  const min = Math.floor(Math.min(...vals));
-  const max = Math.ceil(Math.max(...vals));
-  const labels: string[] = []; const counts: number[] = [];
-  for (let b=min; b<=max; b++) { labels.push(`${b}–${b+1}`); counts.push(0); }
-  for (const v of vals) { const idx = Math.min(Math.max(Math.floor(v - min), 0), counts.length-1); counts[idx]++; }
-  return { labels, counts };
+onUnmounted(() => {
+    if (intervalId) clearInterval(intervalId);
 });
 </script>
 
 <template>
-  <AppLayout>
-    <Head title="DHT11 • Temperatură & Umiditate" />
-    <div class="min-h-screen bg-white dark:bg-black">
-      <div class="container mx-auto px-6 py-8 max-w-7xl">
-        <div class="mb-6">
-          <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-            <span></span> DHT11 • Temperatură & Umiditate
-          </h1>
-          <p class="text-sm text-slate-600 dark:text-slate-400">Date live de la senzorul DHT11</p>
+    <Head title="Environment Monitor" />
+
+    <AppLayout :breadcrumbs="breadcrumbs">
+        <div class="flex flex-1 flex-col gap-6 p-4">
+            
+            <!-- Header -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Activity class="w-6 h-6 text-indigo-500" />
+                        Live Environment Monitor
+                    </h2>
+                    <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                        Real-time telemetry and advanced atmospheric analysis.
+                    </p>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1 bg-white dark:bg-zinc-900 p-1 rounded-lg border border-gray-200 dark:border-zinc-800 shadow-sm">
+                        <button 
+                            v-for="p in periods" 
+                            :key="p.value"
+                            @click="chartPeriod = p.value"
+                            :class="[
+                                'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                                chartPeriod === p.value 
+                                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' 
+                                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                            ]"
+                        >
+                            {{ p.label }}
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-sm text-gray-500 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-full border border-gray-200 dark:border-zinc-800 shadow-sm">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span class="hidden sm:inline">Live</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Smart Recommendations Banner -->
+            <div v-if="recommendations.length" class="grid grid-cols-1 gap-2">
+                <div 
+                    v-for="(rec, idx) in recommendations" 
+                    :key="idx"
+                    :class="[
+                        'rounded-lg px-4 py-3 text-sm flex items-center gap-3 border',
+                        rec.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200' :
+                        rec.type === 'alert' ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200' :
+                        rec.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-200' :
+                        'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-200'
+                    ]"
+                >
+                    <Info class="w-4 h-4 shrink-0" v-if="rec.type === 'info'" />
+                    <Zap class="w-4 h-4 shrink-0" v-if="rec.type === 'warning' || rec.type === 'alert'" />
+                    <Smile class="w-4 h-4 shrink-0" v-if="rec.type === 'success'" />
+                    <span class="font-medium">{{ rec.text }}</span>
+                </div>
+            </div>
+
+            <!-- Derived Metrics (Comfort + Advanced) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Comfort Level -->
+                <div :class="['rounded-xl border p-4 shadow-sm flex items-center justify-between relative overflow-hidden', comfortStatus.bg, 'border-transparent']">
+                    <div class="z-10 relative">
+                         <p class="text-xs font-medium opacity-70 uppercase tracking-wider mb-1">Comfort Index</p>
+                         <h3 :class="['text-xl font-bold flex items-center gap-2', comfortStatus.color]">
+                            {{ comfortStatus.label }}
+                         </h3>
+                    </div>
+                    <component :is="comfortStatus.icon" :class="['w-10 h-10 opacity-20', comfortStatus.color]" />
+                </div>
+
+                 <!-- Heat Index -->
+                 <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 p-4 shadow-sm">
+                    <div class="flex justify-between items-start mb-2">
+                         <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Heat Index</p>
+                         <Sun class="w-5 h-5 text-orange-400" />
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <h3 class="text-2xl font-bold text-gray-900 dark:text-white">
+                           {{ heatIndex ? heatIndex.toFixed(1) : '--' }}
+                        </h3>
+                        <span class="text-sm text-gray-500">°C</span>
+                    </div>
+                    <div class="text-xs text-orange-500 mt-1" v-if="heatIndex && latestTemp && heatIndex > latestTemp">
+                        Feels warmer than actual
+                    </div>
+                </div>
+
+                <!-- Dew Point -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 p-4 shadow-sm">
+                    <div class="flex justify-between items-start mb-2">
+                         <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dew Point</p>
+                         <CloudFog class="w-5 h-5 text-cyan-400" />
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <h3 class="text-2xl font-bold text-gray-900 dark:text-white">
+                           {{ dewPoint ? dewPoint.toFixed(1) : '--' }}
+                        </h3>
+                        <span class="text-sm text-gray-500">°C</span>
+                    </div>
+                     <div class="text-xs text-gray-400 mt-1">
+                        Condensation threshold
+                    </div>
+                </div>
+
+                <!-- Absolute Humidity -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 p-4 shadow-sm">
+                    <div class="flex justify-between items-start mb-2">
+                         <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Abs. Humidity</p>
+                         <Wind class="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <h3 class="text-2xl font-bold text-gray-900 dark:text-white">
+                           {{ absoluteHum ? absoluteHum.toFixed(1) : '--' }}
+                        </h3>
+                        <span class="text-sm text-gray-500">g/m³</span>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1">
+                        Water vapor density
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Sensor Cards -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Temperature Card -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden flex flex-col h-[400px]">
+                    <div class="p-6 border-b border-gray-100 dark:border-zinc-800 flex justify-between items-start">
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <div class="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                                    <Thermometer class="w-5 h-5" />
+                                </div>
+                                <h3 class="font-semibold text-gray-900 dark:text-white text-lg">Temperature</h3>
+                                
+                                <div 
+                                    v-if="tempTrend.value > 0"
+                                    :class="[
+                                        'flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border',
+                                        tempTrend.direction === 'rising' ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:border-red-900' : 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:border-blue-900'
+                                    ]"
+                                >
+                                    <TrendingUp v-if="tempTrend.direction === 'rising'" class="w-3 h-3" />
+                                    <TrendingDown v-else class="w-3 h-3" />
+                                    {{ tempTrend.value.toFixed(1) }}°/last 5m
+                                </div>
+                            </div>
+                            <div class="flex items-baseline gap-2">
+                                <span class="text-4xl font-bold text-gray-900 dark:text-white">
+                                    {{ latestTemp?.toFixed(1) ?? '--' }}
+                                </span>
+                                <span class="text-lg text-gray-500 dark:text-gray-400">°C</span>
+                            </div>
+                        </div>
+                        <div class="text-right space-y-1">
+                            <div class="text-xs text-gray-500 uppercase">24h Range</div>
+                            <div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {{ stats24h['temperatura']?.min.toFixed(1) ?? '--' }}° - {{ stats24h['temperatura']?.max.toFixed(1) ?? '--' }}°
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 min-h-0 relative p-4">
+                        <Line :data="tempChartData" :options="getChartOptions('rgb(249, 115, 22)')" />
+                    </div>
+                </div>
+
+                <!-- Humidity Card -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden flex flex-col h-[400px]">
+                    <div class="p-6 border-b border-gray-100 dark:border-zinc-800 flex justify-between items-start">
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                                    <Droplets class="w-5 h-5" />
+                                </div>
+                                <h3 class="font-semibold text-gray-900 dark:text-white text-lg">Humidity</h3>
+
+                                <div 
+                                    v-if="humTrend.value > 0"
+                                    :class="[
+                                        'flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border',
+                                        humTrend.direction === 'rising' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:border-blue-900' : 'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:border-gray-800'
+                                    ]"
+                                >
+                                    <TrendingUp v-if="humTrend.direction === 'rising'" class="w-3 h-3" />
+                                    <TrendingDown v-else class="w-3 h-3" />
+                                    {{ humTrend.value.toFixed(1) }}%/last 5m
+                                </div>
+                            </div>
+                            <div class="flex items-baseline gap-2">
+                                <span class="text-4xl font-bold text-gray-900 dark:text-white">
+                                    {{ latestHum?.toFixed(1) ?? '--' }}
+                                </span>
+                                <span class="text-lg text-gray-500 dark:text-gray-400">%</span>
+                            </div>
+                        </div>
+                        <div class="text-right space-y-1">
+                            <div class="text-xs text-gray-500 uppercase">24h Range</div>
+                            <div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {{ stats24h['umiditate']?.min.toFixed(1) ?? '--' }}% - {{ stats24h['umiditate']?.max.toFixed(1) ?? '--' }}%
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 min-h-0 relative p-4">
+                        <Line :data="humChartData" :options="getChartOptions('rgb(59, 130, 246)')" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Analytics Section -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Data Correlation Card -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                    <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                        <Activity class="w-5 h-5 text-indigo-500" />
+                        Correlation Analysis
+                    </h3>
+                    
+                    <div class="flex flex-col items-center justify-center py-4">
+                        <div class="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+                            {{ correlation.toFixed(2) }}
+                        </div>
+                        <div :class="['text-sm font-medium', correlationDescription.color]">
+                            {{ correlationDescription.text }}
+                        </div>
+                        <p class="text-xs text-gray-500 text-center mt-4">
+                            Pearson coefficient relating Temperature to Humidity in the selected timeframe.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Volatility / Stability -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                    <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                        <TrendingUp class="w-5 h-5 text-emerald-500" />
+                        Stability Index (SD)
+                    </h3>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600 dark:text-gray-400">Temp Stability</span>
+                                <span class="font-medium text-gray-900 dark:text-white">±{{ tempVolatility.toFixed(2) }}°C</span>
+                            </div>
+                            <div class="w-full bg-gray-100 dark:bg-zinc-800 rounded-full h-2">
+                                <div class="bg-orange-500 h-2 rounded-full transition-all duration-500" :style="{ width: Math.min(tempVolatility * 20, 100) + '%' }"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600 dark:text-gray-400">Humidity Stability</span>
+                                <span class="font-medium text-gray-900 dark:text-white">±{{ humVolatility.toFixed(2) }}%</span>
+                            </div>
+                            <div class="w-full bg-gray-100 dark:bg-zinc-800 rounded-full h-2">
+                                <div class="bg-blue-500 h-2 rounded-full transition-all duration-500" :style="{ width: Math.min(humVolatility * 5, 100) + '%' }"></div>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">
+                            Standard deviation of readings. Lower values indicate a more stable environment.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Peak Times -->
+                <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-6">
+                    <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                         <RefreshCw class="w-5 h-5 text-purple-500" />
+                        Peak Events (Selected Period)
+                    </h3>
+                    
+                    <div class="space-y-3 text-sm">
+                        <div class="flex items-center justify-between p-2 rounded bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20">
+                            <span class="text-orange-700 dark:text-orange-400">Max Temp</span>
+                            <div class="text-right">
+                                <div class="font-bold text-gray-900 dark:text-white">{{ tempPeaks.max?.value.toFixed(1) ?? '--' }}°C</div>
+                                <div class="text-xs text-gray-500">{{ tempPeaks.max ? new Date(tempPeaks.max.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--' }}</div>
+                            </div>
+                        </div>
+
+                         <div class="flex items-center justify-between p-2 rounded bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20">
+                            <span class="text-blue-700 dark:text-blue-400">Min Temp</span>
+                            <div class="text-right">
+                                <div class="font-bold text-gray-900 dark:text-white">{{ tempPeaks.min?.value.toFixed(1) ?? '--' }}°C</div>
+                                <div class="text-xs text-gray-500">{{ tempPeaks.min ? new Date(tempPeaks.min.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
-
-        <div v-if="loading" class="py-20 text-center text-slate-500">Încărcare...</div>
-
-        <div v-else class="space-y-8">
-          <!-- KPIs -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Temperatură</CardTitle></CardHeader>
-              <CardContent class="flex items-end justify-between">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-4xl font-black">{{ latestTemp?.toFixed(1) ?? '--' }}</span>
-                  <span class="text-sm opacity-70">°C</span>
-                </div>
-                <div class="text-xs text-slate-500">
-                  <div>Ultima</div>
-                  <div class="font-medium">{{ tempSensor?.latest_reading_at ? new Date(tempSensor.latest_reading_at).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : '--' }}</div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Umiditate</CardTitle></CardHeader>
-              <CardContent class="flex items-end justify-between">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-4xl font-black">{{ latestHum?.toFixed(1) ?? '--' }}</span>
-                  <span class="text-sm opacity-70">%</span>
-                </div>
-                <div class="text-xs text-slate-500">
-                  <div>Ultima</div>
-                  <div class="font-medium">{{ humSensor?.latest_reading_at ? new Date(humSensor.latest_reading_at).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : '--' }}</div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Heat Index</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ (latestTemp!=null && latestHum!=null) ? heatIndexC(latestTemp, latestHum).toFixed(1) : '--' }} <span class="text-sm font-semibold opacity-70">°C</span></div>
-                <div class="text-xs text-slate-500">Estimare percepută</div>
-              </CardContent>
-            </Card>
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1"><CardTitle class="text-sm font-semibold">Punct de rouă</CardTitle></CardHeader>
-              <CardContent>
-                <div class="text-3xl font-extrabold">{{ (latestTemp!=null && latestHum!=null) ? dewPointC(latestTemp, latestHum).toFixed(1) : '--' }} <span class="text-sm font-semibold opacity-70">°C</span></div>
-                <div class="text-xs text-slate-500">Condiție: {{ comfortLevel(latestTemp, latestHum) }}</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <!-- Smoothing & alerts -->
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Filtrare / netezire</CardTitle>
-                <CardDescription>Medie mobilă + monitorizare outliers</CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3">
-                <div class="flex flex-wrap gap-3 items-center">
-                  <label class="flex items-center gap-2 text-sm">
-                    <input v-model="showSmoothing" type="checkbox" class="rounded border-slate-300 dark:border-zinc-800">
-                    Afișează serii netezite
-                  </label>
-                  <label class="flex items-center gap-2 text-sm">
-                    Fereastră:
-                    <select v-model.number="smoothingWindow" class="rounded-md border border-slate-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2 py-1 text-sm">
-                      <option :value="3">3</option>
-                      <option :value="5">5</option>
-                      <option :value="7">7</option>
-                      <option :value="9">9</option>
-                    </select>
-                    citiri
-                  </label>
-                  <div class="flex gap-2 items-center text-xs">
-                    <Badge :class="Math.abs(tempZ ?? 0) >= 3 ? 'bg-red-500/10 text-red-600 border-red-500/40' : 'bg-green-500/10 text-green-700 border-green-500/30'" variant="outline">
-                      Z temp: {{ tempZ?.toFixed(2) ?? '--' }}
-                    </Badge>
-                    <Badge :class="Math.abs(humZ ?? 0) >= 3 ? 'bg-red-500/10 text-red-600 border-red-500/40' : 'bg-blue-500/10 text-blue-700 border-blue-500/30'" variant="outline">
-                      Z umid: {{ humZ?.toFixed(2) ?? '--' }}
-                    </Badge>
-                  </div>
-                </div>
-                <div class="text-xs text-slate-500">
-                  Medie mobilă aplicată pe ultimele valori, utilă pentru a reduce zgomotul. Z-score indică depărtarea ultimei valori față de media locală.
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Tendințe & alerte live</CardTitle>
-                <CardDescription>Δ pe 10 min și alerte simple</CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3">
-                <div class="grid grid-cols-2 gap-3 text-sm">
-                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                    <div class="text-xs text-slate-500">Tendință temperatură (10m)</div>
-                    <div class="text-lg font-semibold">{{ tempSlope != null ? tempSlope.toFixed(2) : '--' }} °C/min</div>
-                  </div>
-                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                    <div class="text-xs text-slate-500">Tendință umiditate (10m)</div>
-                    <div class="text-lg font-semibold">{{ humSlope != null ? humSlope.toFixed(2) : '--' }} %/min</div>
-                  </div>
-                </div>
-                <div class="flex flex-wrap gap-2 text-xs">
-                  <template v-if="liveAlerts.length">
-                    <Badge v-for="(a,idx) in liveAlerts" :key="idx" class="bg-amber-500/10 text-amber-700 border-amber-500/30" variant="outline">
-                      {{ a }}
-                    </Badge>
-                  </template>
-                  <Badge v-else class="bg-green-500/10 text-green-700 border-green-500/30" variant="outline">Fără alerte</Badge>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <!-- Combined Temp/Humidity Chart -->
-          <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-            <CardHeader class="pb-1">
-              <CardTitle class="text-lg font-bold">Tendințe temperatură și umiditate (2h)</CardTitle>
-              <CardDescription>Axă dublă, lacunele sunt permise când lipsesc perechi</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div class="h-56 bg-slate-50 dark:bg-zinc-900 rounded-lg p-3">
-                <Line v-if="combinedSeries.labels.length" :data="combinedChartWithOverlay" :options="dualAxesOptions" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <!-- Heat Index Trend -->
-          <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-            <CardHeader class="pb-1">
-              <CardTitle class="text-lg font-bold">Heat Index (2h)</CardTitle>
-              <CardDescription>Valoare calculată din temperatură și umiditate</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div class="h-48 bg-slate-50 dark:bg-zinc-900 rounded-lg p-3">
-                <Line v-if="heatIndexSeries.labels.length" :data="heatIndexChartData" :options="chartOptions" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <!-- Rolling window stats -->
-          <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950">
-            <CardHeader class="pb-1">
-              <CardTitle class="text-lg font-bold">Agregări ultimele 30 minute</CardTitle>
-              <CardDescription>Medie, min, max și variație de capăt</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                  <div class="text-xs text-slate-500 mb-1">Temperatură</div>
-                  <div>Medie: <span class="font-semibold">{{ tempStats30?.avg?.toFixed(1) ?? '--' }}</span> °C</div>
-                  <div>Min / Max: <span class="font-semibold">{{ tempStats30?.min?.toFixed(1) ?? '--' }}</span> – <span class="font-semibold">{{ tempStats30?.max?.toFixed(1) ?? '--' }}</span> °C</div>
-                  <div>Δ pe fereastră: <span class="font-semibold">{{ tempStats30?.delta?.toFixed(1) ?? '--' }}</span> °C</div>
-                  <div class="text-xs text-slate-500">Citiri: {{ tempStats30?.count ?? 0 }}</div>
-                </div>
-                <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                  <div class="text-xs text-slate-500 mb-1">Umiditate</div>
-                  <div>Medie: <span class="font-semibold">{{ humStats30?.avg?.toFixed(1) ?? '--' }}</span> %</div>
-                  <div>Min / Max: <span class="font-semibold">{{ humStats30?.min?.toFixed(1) ?? '--' }}</span> – <span class="font-semibold">{{ humStats30?.max?.toFixed(1) ?? '--' }}</span> %</div>
-                  <div>Δ pe fereastră: <span class="font-semibold">{{ humStats30?.delta?.toFixed(1) ?? '--' }}</span> %</div>
-                  <div class="text-xs text-slate-500">Citiri: {{ humStats30?.count ?? 0 }}</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <!-- Reports: 24h Stats & Distribution -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950 lg:col-span-2">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Raport 24h</CardTitle>
-                <CardDescription>Medie, minim, maxim</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                    <div class="text-xs text-slate-500">Temperatură</div>
-                    <div class="mt-1 text-sm">
-                      <div>Medie: <span class="font-semibold">{{ stats24h.find(s=>s.sensor_type==='temperatura')?.avg?.toFixed(1) ?? '--' }}</span> °C</div>
-                      <div>Min: <span class="font-semibold">{{ stats24h.find(s=>s.sensor_type==='temperatura')?.min?.toFixed(1) ?? '--' }}</span> °C</div>
-                      <div>Max: <span class="font-semibold">{{ stats24h.find(s=>s.sensor_type==='temperatura')?.max?.toFixed(1) ?? '--' }}</span> °C</div>
-                    </div>
-                  </div>
-                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                    <div class="text-xs text-slate-500">Umiditate</div>
-                    <div class="mt-1 text-sm">
-                      <div>Medie: <span class="font-semibold">{{ stats24h.find(s=>s.sensor_type==='umiditate')?.avg?.toFixed(1) ?? '--' }}</span> %</div>
-                      <div>Min: <span class="font-semibold">{{ stats24h.find(s=>s.sensor_type==='umiditate')?.min?.toFixed(1) ?? '--' }}</span> %</div>
-                      <div>Max: <span class="font-semibold">{{ stats24h.find(s=>s.sensor_type==='umiditate')?.max?.toFixed(1) ?? '--' }}</span> %</div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card class="border-2 dark:border-zinc-900 bg-white dark:bg-zinc-950 lg:col-span-1">
-              <CardHeader class="pb-1">
-                <CardTitle class="text-lg font-bold">Distribuție temperatură (2h)</CardTitle>
-                <CardDescription>Bucket ~ 1°C</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div class="text-xs text-slate-500" v-if="!tempHistData.labels.length">Insuficiente date</div>
-                <div class="grid grid-cols-1 gap-1" v-else>
-                  <div v-for="(label,idx) in tempHistData.labels" :key="'b'+idx" class="flex items-center gap-2">
-                    <div class="w-16 text-xs text-slate-600 dark:text-slate-400">{{ label }}</div>
-                    <div class="flex-1 h-2 bg-slate-200 dark:bg-zinc-900 rounded">
-                      <div class="h-2 rounded bg-red-500" :style="{ width: Math.min((tempHistData.counts[idx] / Math.max(...tempHistData.counts)) * 100, 100) + '%' }"></div>
-                    </div>
-                    <div class="w-8 text-right text-xs">{{ tempHistData.counts[idx] }}</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    </div>
-  </AppLayout>
+    </AppLayout>
 </template>
