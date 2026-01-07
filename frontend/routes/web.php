@@ -13,7 +13,7 @@ Route::get('/', function () {
 // Protected dashboards
 Route::middleware(['auth'])->group(function () {
     Route::get('dashboard', function () {
-        return Inertia::render('Sensors/Dashboard');
+        return Inertia::render('Dashboard');
     })->name('dashboard');
 
     // Device-specific dashboards
