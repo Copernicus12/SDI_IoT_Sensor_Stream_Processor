@@ -15,7 +15,7 @@ import { dashboard } from '@/routes';
 import dashboardRoutes from '@/routes/dashboard';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
-import { LayoutGrid, Thermometer, Droplet, Zap, TrendingUp, Activity, Download, Cpu } from 'lucide-vue-next';
+import { LayoutGrid, Thermometer, Droplet, Zap, TrendingUp, Activity, Download, Cpu, Network } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
 const mainNavItems: NavItem[] = [
@@ -60,6 +60,11 @@ const mainNavItems: NavItem[] = [
         title: 'Export',
         href: '/dashboard/export',
         icon: Download,
+    },
+    {
+        title: 'Distributed Insights',
+        href: '/dashboard/distributed-insights',
+        icon: Network,
     },
 ];
 

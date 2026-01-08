@@ -140,6 +140,15 @@ Route::middleware(['auth'])->group(function () {
         return Inertia::render('Export');
     })->name('dashboard.export');
 
+    // Distributed insights (cross-sensor processing)
+    Route::get('dashboard/distributed-insights', function () {
+        $insights = app(\App\Services\DistributedInsightsService::class)->compute(windowMinutes: 60);
+
+        return Inertia::render('DistributedInsights', [
+            'insights' => $insights,
+        ]);
+    })->name('dashboard.distributed-insights');
+
     Route::get('/readings/details', function(\Illuminate\Http\Request $request) {
         $timeStr = $request->query('time'); // Expected: Y-m-d H:i
         $sensorId = $request->query('sensor_id');

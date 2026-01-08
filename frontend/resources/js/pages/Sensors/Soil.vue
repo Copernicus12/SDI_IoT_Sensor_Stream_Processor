@@ -75,7 +75,7 @@ const moistureStatus = computed(() => {
     // Based on typical backend normalization, let's assume it's mapped to % or raw value.
     // If > 100, it's likely raw analog (0-4095).
     
-    let pct = val; 
+    const pct = val; 
     if (val > 100) { 
         // Simple heuristic map if raw: 4095=Dry, 1500=Wet? Or 0=Dry? 
         // Without calibration info, we'll display raw but status might be guessed.
