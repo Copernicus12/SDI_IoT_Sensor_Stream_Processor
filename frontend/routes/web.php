@@ -55,17 +55,36 @@ Route::middleware(['auth'])->group(function () {
 
         $recentReadings = \App\Models\SensorReading::with('sensor')
             ->latest()
-            ->take(10)
+            ->take(2400) // Approx 10 mins of history for 4 sensors
             ->get()
-            ->map(function ($reading) {
+            ->groupBy(function($r) {
+                // Group by Minute + Sensor
+                return $r->created_at->setTimezone('Europe/Bucharest')->format('Y-m-d H:i') . '|' . $r->sensor_id;
+            })
+            ->map(function($readings) {
+                $first = $readings->first();
                 return [
-                    'id' => $reading->id,
-                    'sensor' => $reading->sensor->name ?? $reading->sensor->sensor_type,
-                    'value' => $reading->value,
-                    'unit' => $reading->sensor->unit,
-                    'time' => $reading->created_at->setTimezone('Europe/Bucharest')->format('d.m.Y H:i:s'),
+                    'key' => $first->created_at->setTimezone('Europe/Bucharest')->format('Y-m-d H:i') . '-' . $first->sensor_id,
+                    'time' => $first->created_at->setTimezone('Europe/Bucharest')->format('H:i'),
+                    'full_time' => $first->created_at->setTimezone('Europe/Bucharest')->format('Y-m-d H:i'),
+                    'sensor_id' => $first->sensor_id,
+                    'sensor_name' => $first->sensor->name ?? $first->sensor->sensor_type,
+                    'unit' => $first->sensor->unit,
+                    'avg_value' => round($readings->avg('value'), 2),
+                    'count' => $readings->count(),
                 ];
-            });
+            })
+            ->values()
+            // Sort by time desc
+            ->sortByDesc('full_time')
+            // Get last 60 entries (approx 20 minutes of history for 3 sensors)
+            ->take(60)
+            ->values();
+
+        // Ensure array
+        if (!$recentReadings) {
+            $recentReadings = [];
+        }
 
         $recentAlerts = \App\Models\Alert::where('status', 'active') // Or remove 'active' if you want history
             ->latest()
@@ -120,6 +139,37 @@ Route::middleware(['auth'])->group(function () {
     Route::get('dashboard/export', function () {
         return Inertia::render('Export');
     })->name('dashboard.export');
+
+    Route::get('/readings/details', function(\Illuminate\Http\Request $request) {
+        $timeStr = $request->query('time'); // Expected: Y-m-d H:i
+        $sensorId = $request->query('sensor_id');
+
+        if (!$timeStr || !$sensorId) {
+            return response()->json([]);
+        }
+
+        try {
+            // Parse time in Bucharest time, then convert to UTC for DB query
+            $date = \Carbon\Carbon::createFromFormat('Y-m-d H:i', $timeStr, 'Europe/Bucharest');
+            $start = $date->copy()->startOfMinute()->setTimezone('UTC');
+            $end = $date->copy()->endOfMinute()->setTimezone('UTC');
+
+            $readings = \App\Models\SensorReading::where('sensor_id', $sensorId)
+                ->whereBetween('created_at', [$start, $end])
+                ->orderBy('created_at')
+                ->get()
+                ->map(function($r) {
+                    return [
+                        'time' => $r->created_at->setTimezone('Europe/Bucharest')->format('H:i:s'),
+                        'value' => $r->value,
+                    ];
+                });
+
+            return response()->json($readings);
+        } catch (\Exception $e) {
+             return response()->json(['error' => $e->getMessage()], 400);
+        }
+    })->name('readings.details');
 });
 
 require __DIR__.'/settings.php';
