@@ -30,6 +30,17 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, TimeScale);
 
+interface EnergySettings {
+    price_per_kwh: number;
+    currency: string;
+    mains_voltage_v: number;
+    power_factor: number;
+}
+
+const props = defineProps<{
+    energySettings: EnergySettings;
+}>();
+
 interface SensorReading { value: number; timestamp: string }
 interface Sensor { 
     id: number; 
@@ -46,7 +57,11 @@ const stats24h = ref<Record<string, { avg: number; min: number; max: number }>>(
 const loading = ref(true);
 const chartPeriod = ref(6);
 let intervalId: number | null = null;
-const VOLTAGE = 230; // Assuming 230V standard EU/RO voltage for power calc
+
+const VOLTAGE = computed(() => props.energySettings?.mains_voltage_v ?? 230);
+const POWER_FACTOR = computed(() => props.energySettings?.power_factor ?? 1);
+const PRICE_PER_KWH = computed(() => props.energySettings?.price_per_kwh ?? 1.3);
+const CURRENCY = computed(() => props.energySettings?.currency ?? 'RON');
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
@@ -68,7 +83,7 @@ const readings = computed(() => acsSensor.value ? (historicalData.value[acsSenso
 // Assuming the sensor sends Amperes directly. If invalid raw data, this might need adjustment.
 // Some ACS712 implementations send 512 + (Amps * Sens). We assume backend normalized to Amps.
 const currentAmps = computed(() => latestValue.value ?? 0);
-const currentPowerWatts = computed(() => currentAmps.value * VOLTAGE);
+const currentPowerWatts = computed(() => currentAmps.value * VOLTAGE.value * POWER_FACTOR.value);
 
 // Determine Load Status
 const loadStatus = computed(() => {
@@ -150,11 +165,10 @@ const estimatedCost = computed(() => {
     if (readings.value.length === 0) return 0;
     const vals = readings.value.map(r => r.value);
     const avgAmps = vals.reduce((a,b)=>a+b,0)/vals.length;
-    const avgKW = (avgAmps * VOLTAGE) / 1000;
+    const avgKW = (avgAmps * VOLTAGE.value * POWER_FACTOR.value) / 1000;
     const hours = chartPeriod.value;
     const kwh = avgKW * hours;
-    const PRICE_PER_KWH = 1.3; // RON typical
-    return kwh * PRICE_PER_KWH;
+    return kwh * PRICE_PER_KWH.value;
 });
 
 
@@ -253,15 +267,15 @@ onUnmounted(() => { if (intervalId) clearInterval(intervalId); });
                         <div class="text-3xl font-bold text-gray-900 dark:text-white">
                             {{ currentPowerWatts.toFixed(0) }} <span class="text-lg text-gray-400 font-normal">W</span>
                         </div>
-                         <div class="text-xs text-gray-400 mt-1">@ {{VOLTAGE}}V est.</div>
+                         <div class="text-xs text-gray-400 mt-1">@ {{ VOLTAGE }}V, PF {{ POWER_FACTOR.toFixed(2) }}</div>
                     </div>
                      <!-- Est Cost -->
                     <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm p-4 flex flex-col justify-center">
                         <div class="text-gray-500 text-xs uppercase font-medium mb-1">Est. Cost ({{chartPeriod}}h)</div>
                         <div class="text-3xl font-bold text-gray-900 dark:text-white">
-                            {{ estimatedCost.toFixed(2) }} <span class="text-lg text-gray-400 font-normal">RON</span>
+                            {{ estimatedCost.toFixed(2) }} <span class="text-lg text-gray-400 font-normal">{{ CURRENCY }}</span>
                         </div>
-                        <div class="text-xs text-gray-400 mt-1">~1.3 RON/kWh</div>
+                        <div class="text-xs text-gray-400 mt-1">~{{ PRICE_PER_KWH.toFixed(3) }} {{ CURRENCY }}/kWh</div>
                     </div>
                 </div>
             </div>

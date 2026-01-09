@@ -8,9 +8,26 @@ use Carbon\Carbon;
 
 class DistributedInsightsService
 {
-    public function compute(int $windowMinutes = 60, string $timezone = 'Europe/Bucharest'): array
+    public function compute(
+        int $windowMinutes = 60,
+        string $timezone = 'Europe/Bucharest',
+        ?float $zWarn = null,
+        ?float $zCritical = null,
+        ?int $stalenessThresholdSeconds = null,
+    ): array
     {
         $windowMinutes = max(10, min(360, $windowMinutes));
+
+        $zWarn = $zWarn === null ? 2.0 : (float) $zWarn;
+        $zCritical = $zCritical === null ? 3.0 : (float) $zCritical;
+        $zWarn = max(0.5, min(10.0, $zWarn));
+        $zCritical = max(0.5, min(10.0, $zCritical));
+        if ($zCritical < $zWarn) {
+            $zCritical = $zWarn;
+        }
+
+        $stalenessThresholdSeconds = $stalenessThresholdSeconds === null ? 180 : (int) $stalenessThresholdSeconds;
+        $stalenessThresholdSeconds = max(10, min(3600, $stalenessThresholdSeconds));
 
         $now = now();
         $start = $now->copy()->subMinutes($windowMinutes);
@@ -127,6 +144,8 @@ class DistributedInsightsService
         }
 
         // Node summaries
+        $zWarnCount = 0;
+        $zCriticalCount = 0;
         foreach ($nodes as $nodeId => $nodeCfg) {
             $nodeSensors = $sensorIndex[$nodeId] ?? [];
 
@@ -166,6 +185,20 @@ class DistributedInsightsService
                     $z = round($z, 2);
                 }
 
+                $severity = null;
+                if ($z !== null) {
+                    $az = abs((float) $z);
+                    if ($az >= $zCritical) {
+                        $severity = 'critical';
+                        $zCriticalCount++;
+                    } elseif ($az >= $zWarn) {
+                        $severity = 'warn';
+                        $zWarnCount++;
+                    } else {
+                        $severity = 'ok';
+                    }
+                }
+
                 $metrics[] = [
                     'sensor_type' => $sensorType,
                     'sensor_name' => $sensor->name ?? $meta['label'],
@@ -174,6 +207,7 @@ class DistributedInsightsService
                     'mean' => $stats['mean'],
                     'std' => $stats['std'],
                     'z' => $z,
+                    'severity' => $severity,
                     'count' => (int) $stats['count'],
                     'availability' => $windowMinutes > 0 ? round(min(1, count(array_keys($series)) / $windowMinutes), 3) : 0.0,
                     'missing_minutes' => $windowMinutes > 0 ? max(0, $windowMinutes - count(array_keys($series))) : 0,
@@ -194,6 +228,20 @@ class DistributedInsightsService
                     $dz = round($dz, 2);
                 }
 
+                $dSeverity = null;
+                if ($dz !== null) {
+                    $az = abs((float) $dz);
+                    if ($az >= $zCritical) {
+                        $dSeverity = 'critical';
+                        $zCriticalCount++;
+                    } elseif ($az >= $zWarn) {
+                        $dSeverity = 'warn';
+                        $zWarnCount++;
+                    } else {
+                        $dSeverity = 'ok';
+                    }
+                }
+
                 $metrics[] = [
                     'sensor_type' => 'microclimate',
                     'sensor_name' => 'Microclimate Index (Temp + 0.1×Hum)',
@@ -202,6 +250,7 @@ class DistributedInsightsService
                     'mean' => $dstats['mean'],
                     'std' => $dstats['std'],
                     'z' => $dz,
+                    'severity' => $dSeverity,
                     'count' => (int) $dstats['count'],
                     'availability' => $windowMinutes > 0 ? round(min(1, count(array_keys($derivedSeries['microclimate'] ?? [])) / $windowMinutes), 3) : 0.0,
                     'missing_minutes' => $windowMinutes > 0 ? max(0, $windowMinutes - count(array_keys($derivedSeries['microclimate'] ?? []))) : 0,
@@ -307,10 +356,12 @@ class DistributedInsightsService
         $score -= (int) min(30, floor($skewSeconds / 10));
 
         foreach ($nodeSummaries as $node) {
-            if (($node['staleness_seconds'] ?? 999999) > 180) {
+            if (($node['staleness_seconds'] ?? 999999) > $stalenessThresholdSeconds) {
                 $score -= 10;
             }
         }
+
+        $score -= (int) min(20, ($zWarnCount * 2) + ($zCriticalCount * 5));
 
         $score = max(0, min(100, $score));
 
@@ -321,10 +372,24 @@ class DistributedInsightsService
         if ($skewSeconds > 60) {
             $notes[] = 'Clock skew / ingestion lag between nodes is noticeable';
         }
+        if ($zCriticalCount > 0) {
+            $notes[] = 'One or more signals are in critical anomaly range (z-score)';
+        } elseif ($zWarnCount > 0) {
+            $notes[] = 'Some signals are in warning anomaly range (z-score)';
+        }
 
         return [
             'computedAt' => $now->setTimezone($timezone)->format('d.m.Y H:i:s'),
             'windowMinutes' => $windowMinutes,
+            'thresholds' => [
+                'z_warn' => $zWarn,
+                'z_critical' => $zCritical,
+                'staleness_threshold_s' => $stalenessThresholdSeconds,
+            ],
+            'anomalies' => [
+                'warn_count' => $zWarnCount,
+                'critical_count' => $zCriticalCount,
+            ],
             'rawReadingsCount' => $readings->count(),
             'bucketCount' => $bucketCount,
             'nodeSummaries' => $nodeSummaries,

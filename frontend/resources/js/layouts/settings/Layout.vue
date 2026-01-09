@@ -3,6 +3,7 @@ import Heading from '@/components/Heading.vue';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toUrl, urlIsActive } from '@/lib/utils';
+import { edit as editAppSettings } from '@/routes/app-settings';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit as editProfile } from '@/routes/profile';
 import { show } from '@/routes/two-factor';
@@ -18,6 +19,10 @@ const sidebarNavItems: NavItem[] = [
     {
         title: 'Password',
         href: editPassword(),
+    },
+    {
+        title: 'App Settings',
+        href: editAppSettings(),
     },
     {
         title: 'Two-Factor Auth',

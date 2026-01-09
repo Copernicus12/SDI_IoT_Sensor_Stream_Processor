@@ -12,6 +12,8 @@ Route::get('/', function () {
 
 // Protected dashboards
 Route::middleware(['auth'])->group(function () {
+    Route::get('search', \App\Http\Controllers\SearchController::class)->name('search');
+
     Route::get('dashboard', function () {
         $sensors = \App\Models\Sensor::with(['latestReading'])->get()->map(function ($sensor) {
             $isOnline = false;
@@ -123,7 +125,17 @@ Route::middleware(['auth'])->group(function () {
     })->name('dashboard.soil');
 
     Route::get('dashboard/acs', function () {
-        return Inertia::render('Sensors/ACS');
+        $settings = app(\App\Services\AppSettingsService::class);
+        $defaults = $settings->defaults();
+
+        return Inertia::render('Sensors/ACS', [
+            'energySettings' => [
+                'price_per_kwh' => $settings->getFloat('energy.price_per_kwh', $defaults['energy']['price_per_kwh']),
+                'currency' => $settings->getString('energy.currency', $defaults['energy']['currency']),
+                'mains_voltage_v' => $settings->getFloat('energy.mains_voltage_v', $defaults['energy']['mains_voltage_v']),
+                'power_factor' => $settings->getFloat('energy.power_factor', $defaults['energy']['power_factor']),
+            ],
+        ]);
     })->name('dashboard.acs');
 
     // Trends page
@@ -142,7 +154,20 @@ Route::middleware(['auth'])->group(function () {
 
     // Distributed insights (cross-sensor processing)
     Route::get('dashboard/distributed-insights', function () {
-        $insights = app(\App\Services\DistributedInsightsService::class)->compute(windowMinutes: 60);
+        $settings = app(\App\Services\AppSettingsService::class);
+        $defaults = $settings->defaults();
+
+        $windowMinutes = $settings->getInt('distributed.window_minutes', $defaults['distributed']['window_minutes']);
+        $zWarn = $settings->getFloat('distributed.z_warn', $defaults['distributed']['z_warn']);
+        $zCritical = $settings->getFloat('distributed.z_critical', $defaults['distributed']['z_critical']);
+        $stalenessThresholdSeconds = $settings->getInt('distributed.staleness_threshold_s', $defaults['distributed']['staleness_threshold_s']);
+
+        $insights = app(\App\Services\DistributedInsightsService::class)->compute(
+            windowMinutes: $windowMinutes,
+            zWarn: $zWarn,
+            zCritical: $zCritical,
+            stalenessThresholdSeconds: $stalenessThresholdSeconds,
+        );
 
         return Inertia::render('DistributedInsights', [
             'insights' => $insights,
