@@ -1,0 +1,81 @@
+@startuml ui_routes_flow
+title UI Flow — Rute Frontend (Dashboard / Latest / Stats / Status / Export)
+
+skinparam shadowing false
+skinparam linetype ortho
+skinparam dpi 180
+
+|End User|
+start
+:Deschide aplicația web;
+
+|Frontend (Router/UI)|
+if (Este autentificat?) then (DA)
+  :Încarcă layout + meniu;
+else (NU / N/A)
+  :Deschide pagina de start (Public);
+endif
+
+:Route -> / (Home);
+
+if (User apasă "Dashboard"?) then (DA)
+  :Route -> /dashboard;
+  |Backend (API)|
+  :GET /api/latest;
+  :GET /api/status;
+  |Frontend (Router/UI)|
+  :Afișează valori curente + status;
+endif
+
+if (User apasă "Senzori"?) then (DA)
+  :Route -> /sensors;
+  |Backend (API)|
+  :GET /api/sensors;
+  |Frontend (Router/UI)|
+  :Afișează lista de senzori;
+  if (Selectează un senzor?) then (DA)
+    :Route -> /sensors/{sensorId};
+    |Backend (API)|
+    :GET /api/sensors/{sensorId}/latest;
+    :GET /api/sensors/{sensorId}/history;
+    |Frontend (Router/UI)|
+    :Afișează detalii + istoric;
+  endif
+endif
+
+if (User apasă "Statistici / Agregări"?) then (DA)
+  :Route -> /stats;
+  :User selectează interval + metric;
+  |Backend (API)|
+  :GET /api/stats?metric=...&from=...&to=...;
+  |Frontend (Router/UI)|
+  :Afișează grafice/tabele agregate;
+endif
+
+if (User apasă "Stare sistem"?) then (DA)
+  :Route -> /system;
+  |Backend (API)|
+  :GET /api/status;
+  :GET /api/events;
+  |Frontend (Router/UI)|
+  :Afișează starea componentelor + loguri;
+endif
+
+if (User apasă "Export"?) then (DA)
+  :Route -> /export;
+  :User selectează format + interval;
+  |Backend (API)|
+  :GET /api/export?format=...&from=...&to=...;
+  |Frontend (Router/UI)|
+  :Declanșează download fișier;
+endif
+
+if (User iese din aplicație?) then (DA)
+  :Route -> / (Home);
+  stop
+else (NU)
+  :Rămâne în aplicație;
+  stop
+endif
+
+@enduml

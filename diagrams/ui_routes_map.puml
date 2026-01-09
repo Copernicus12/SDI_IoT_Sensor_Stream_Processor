@@ -1,0 +1,81 @@
+@startuml ui_routes_map
+left to right direction
+
+skinparam backgroundColor #F8FAFC
+skinparam roundcorner 12
+skinparam shadowing false
+skinparam ArrowColor #64748B
+skinparam NodeBorderColor #CBD5E1
+skinparam NodeBackgroundColor #FFFFFF
+skinparam DefaultFontName "Inter"
+skinparam DefaultFontSize 13
+
+' Compactare layout
+skinparam linetype ortho
+skinparam ranksep 18
+skinparam nodesep 12
+
+
+legend right
+  <b>Legends</b>
+  <color:#10B981>Public</color>
+  <color:#2563EB>Protected (auth)</color>
+endlegend
+
+rectangle "Public" #ECFDF5 {
+  [GET / (home)] as HOME
+}
+
+rectangle "Auth required" #EFF6FF {
+  [GET /search] as SEARCH
+  [GET /dashboard] as DASH
+  [GET /readings/details\n(query: time, sensor_id)] as READINGS
+
+  rectangle "Dashboard pages" #DBEAFE {
+    [GET /dashboard/dht11] as DHT11
+    [GET /dashboard/soil] as SOIL
+    [GET /dashboard/acs] as ACS
+    [GET /dashboard/trends] as TRENDS
+    [GET /dashboard/anomalies] as ANOM
+    [GET /dashboard/export] as EXPORT
+    [GET /dashboard/distributed-insights] as DIST
+  }
+
+  rectangle "Settings" #E0E7FF {
+    [GET /settings -> /settings/profile] as SETROOT
+    [GET /settings/profile] as PROFILE_GET
+    [PATCH /settings/profile] as PROFILE_PATCH
+    [DELETE /settings/profile] as PROFILE_DEL
+    [GET /settings/password] as PASS_GET
+    [PUT /settings/password] as PASS_PUT
+    [GET /settings/appearance] as APP_GET
+    [GET /settings/app] as APPSET_GET
+    [PATCH /settings/app] as APPSET_PATCH
+    [GET /settings/two-factor] as TFA_GET
+  }
+}
+
+' Legături compacte
+HOME --> DASH
+HOME --> SEARCH
+
+DASH --> DHT11
+DASH --> SOIL
+DASH --> ACS
+DASH --> TRENDS
+DASH --> ANOM
+DASH --> EXPORT
+DASH --> DIST
+
+DASH --> SETROOT
+SETROOT --> PROFILE_GET
+PROFILE_GET --> PASS_GET
+PASS_GET --> PASS_PUT
+PROFILE_GET --> PROFILE_PATCH
+PROFILE_GET --> PROFILE_DEL
+PROFILE_GET --> APP_GET
+PROFILE_GET --> APPSET_GET
+APPSET_GET --> APPSET_PATCH
+PROFILE_GET --> TFA_GET
+
+@enduml

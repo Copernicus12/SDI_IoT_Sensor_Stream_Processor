@@ -1,0 +1,46 @@
+@startuml components
+title Diagrama de componente — SDI IoT Sensor Stream Processor
+left to right direction
+skinparam componentStyle rectangle
+
+actor "End User" as user
+
+package "Edge / Input" {
+  [ESP32 Device\n(esp32_code)] as ESP32
+  [Sensor Simulator\n(simulate_sensors.sh)] as SIM
+}
+
+package "Messaging" {
+  [MQTT Broker\n(Mosquitto)] as MQTT
+}
+
+package "Backend" {
+  [MQTT Subscriber / Stream Processor\n(PHP Artisan: mqtt:subscribe)] as SUB
+  [REST API\n(Spring Boot: mvn spring-boot:run)] as API
+  database "Database\n(persistenta masuratori)" as DB
+}
+
+package "Frontend" {
+  [Web UI\n(frontend: composer run dev)] as FE
+}
+
+user --> FE : monitorizare / dashboard
+
+ESP32 --> MQTT : publish measurements\n(MQTT)
+SIM --> MQTT : publish test data\n(MQTT)
+
+SUB --> MQTT : subscribe topics\n(MQTT)
+SUB --> DB : write / aggregate
+
+FE --> API : HTTP requests\n(latest, stats, export)
+API --> DB : read queries
+
+note right of SUB
+Rol:
+- consum MQTT (subscribe)
+- validare payload
+- procesare / agregare
+- persistenta in DB
+end note
+
+@enduml

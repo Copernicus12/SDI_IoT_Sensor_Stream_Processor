@@ -1,0 +1,77 @@
+@startuml
+
+' Stil crow's foot (păstrat)
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+
+entity "Sensor" as Sensor {
+  * sensor_id : UUID / INT <<PK>>
+  --
+  name : string
+  location : string
+  type : string
+  status : string
+  created_at : datetime
+}
+
+entity "Measurement" as Measurement {
+  * measurement_id : UUID / INT <<PK>>
+  --
+  sensor_id : UUID / INT <<FK>>
+  metric : string
+  value : double
+  unit : string
+  ts : datetime
+  raw_payload : text
+}
+
+entity "Aggregation" as Aggregation {
+  * aggregation_id : UUID / INT <<PK>>
+  --
+  sensor_id : UUID / INT <<FK>>
+  metric : string
+  window_type : string
+  window_start : datetime
+  window_end : datetime
+  min_value : double
+  max_value : double
+  avg_value : double
+  count : int
+  computed_at : datetime
+}
+
+entity "SystemEvent" as SystemEvent {
+  * event_id : UUID / INT <<PK>>
+  --
+  source : string
+  level : string
+  message : text
+  ts : datetime
+}
+
+entity "Topic" as Topic {
+  * topic_id : UUID / INT <<PK>>
+  --
+  name : string
+  qos : int
+  retained : boolean
+}
+
+entity "SensorTopic" as SensorTopic {
+  * sensor_id : UUID / INT <<FK>>
+  * topic_id  : UUID / INT <<FK>>
+  --
+  direction : string
+}
+
+' ======================
+' Relatii — DOAR sageti
+' ======================
+
+Measurement --> Sensor
+Aggregation --> Sensor
+SensorTopic --> Sensor
+SensorTopic --> Topic
+
+@enduml

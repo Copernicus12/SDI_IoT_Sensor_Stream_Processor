@@ -1,0 +1,53 @@
+@startuml deployment
+title Diagrama de deployment — noduri + tehnologii
+skinparam shadowing false
+
+node "Edge Node" as EDGE {
+  artifact "ESP32 Firmware\n(esp32_code)" as FW
+}
+
+node "Dev / Test Machine" as DEV {
+  artifact "Simulator Script\n(simulate_sensors.sh)" as SH
+}
+
+node "Server / Host (local/VM)" as HOST {
+
+  node "MQTT Broker" as N_MQTT {
+    artifact "Mosquitto\nTCP:1883" as MOSQ
+  }
+
+  node "Backend Services" as N_BE {
+    artifact "MQTT Subscriber / Processor\nPHP Artisan: mqtt:subscribe" as SUB
+    artifact "REST API\nSpring Boot (Maven)" as API
+  }
+
+  node "Data Layer" as N_DB {
+    database "Database\n(persistenta)" as DB
+  }
+
+  node "Frontend" as N_FE {
+    artifact "Web UI\n(frontend: composer run dev)" as FE
+  }
+}
+
+node "Client Node" as CLIENT {
+  artifact "Browser\n(End User)" as BR
+}
+
+FW --> MOSQ : MQTT publish
+SH --> MOSQ : MQTT publish (test)
+SUB --> MOSQ : MQTT subscribe
+SUB --> DB : store / aggregate
+API --> DB : query
+BR --> FE : HTTP (UI)
+FE --> API : HTTP (REST)
+
+note bottom of HOST
+Componente pornite separat, conform README:
+- frontend (composer run dev)
+- backend Spring Boot (mvn spring-boot:run)
+- MQTT subscriber (php artisan mqtt:subscribe)
+- simulator (simulate_sensors.sh)
+end note
+
+@enduml
