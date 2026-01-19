@@ -96,7 +96,7 @@ const fetchAnomalies = async () => {
       const json = await res.json()
       const raw = json.data ?? []
       anomalies.value = (raw as any[]).map(a => {
-        const zScore = Number(a.z ?? a.z_score ?? a.score)
+        const zScore = Number(a.zscore ?? a.z ?? a.z_score ?? a.score)
         const val = Number(a.value ?? a.reading ?? a.v)
         const ts = a.timestamp ?? a.time ?? a.created_at
         return {
@@ -126,15 +126,23 @@ watch([z, windowSize, hours], () => {
 
 const sortedAnomalies = computed(() => anomalies.value.slice().sort((a,b)=> new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()))
 const highestZ = computed(() => anomalies.value.reduce((acc,a)=> Math.max(acc, Math.abs(a.z ?? 0)), 0))
-const anomalyRate = computed(() => anomalies.value.length / Math.max(hours.value, 1))
+const anomalyRate = computed(() => (anomalies.value.length / Math.max(hours.value, 1)).toFixed(2))
+
+const activeDetectionMode = computed(() => {
+  const preset = presets.find(p => p.z === z.value && p.window === windowSize.value && p.hours === hours.value)
+  return preset ? preset.label : 'Custom'
+})
 
 const severityBuckets = computed(() => {
   const buckets = { mild:0, high:0, extreme:0 }
+  const threshold = z.value
   anomalies.value.forEach(a => {
     const abs = Math.abs(a.z ?? 0)
-    if (abs >= 4) buckets.extreme++
-    else if (abs >= 3) buckets.high++
-    else buckets.mild++
+    // Clasificare relativă la threshold-ul setat
+    const ratio = abs / threshold
+    if (ratio >= 1.5) buckets.extreme++      // >150% peste threshold
+    else if (ratio >= 1.2) buckets.high++    // 120-150% peste threshold  
+    else buckets.mild++                       // 100-120% peste threshold
   })
   return buckets
 })
@@ -248,7 +256,7 @@ const formatTime = (ts: string) => {
                 </div>
                 <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 p-4 transition-all">
                     <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Rate (Anom/Hr)</p>
-                    <h4 class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ anomalyRate.toFixed(1) }}</h4>
+                    <h4 class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ anomalyRate }}</h4>
                 </div>
                 <div class="rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 p-4 flex gap-2 items-center">
                     <div class="flex-1 space-y-1">
@@ -268,8 +276,19 @@ const formatTime = (ts: string) => {
              <div class="flex-1 rounded-xl border border-sidebar-border/70 dark:border-sidebar-border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden flex flex-col">
                 <div class="p-6 border-b border-sidebar-border/70 dark:border-sidebar-border flex justify-between items-center">
                     <div>
-                        <h3 class="font-semibold text-lg text-gray-900 dark:text-white">Detected Anomalies</h3>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                        <div class="flex items-center gap-3">
+                            <h3 class="font-semibold text-lg text-gray-900 dark:text-white">Detected Anomalies</h3>
+                            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full" 
+                                  :class="{
+                                    'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400': activeDetectionMode === 'Relaxed',
+                                    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400': activeDetectionMode === 'Balanced',
+                                    'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400': activeDetectionMode === 'Strict',
+                                    'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400': activeDetectionMode === 'Custom'
+                                  }">
+                                {{ activeDetectionMode }}
+                            </span>
+                        </div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
                            Points exceeding {{ z }}σ deviation from the moving average.
                         </p>
                     </div>

@@ -52,7 +52,7 @@ const mainNavItems: NavItem[] = [
         icon: TrendingUp,
     },
     {
-        title: 'Anomalii',
+        title: 'Anomalies',
         href: '/dashboard/anomalies',
         icon: Activity,
     },
