@@ -4,12 +4,15 @@
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/config/ExportTokenFilter.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/model/AggregatedReading.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/model/ApiToken.java
+/Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/model/AppSetting.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/model/Sensor.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/model/SensorReading.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/repo/ApiTokenRepository.java
+/Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/repo/AppSettingRepository.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/repo/SensorReadingRepository.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/repo/SensorRepository.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/web/ExportController.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/web/SensorController.java
+/Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/web/SettingsController.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/web/dto/ApiResponse.java
 /Users/razvihosu/Desktop/SDI_Proiect/SDI_IoT_Distribuited_Processor/java-backend/src/main/java/sdi/iot/web/dto/SensorDtos.java

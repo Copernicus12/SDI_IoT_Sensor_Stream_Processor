@@ -150,6 +150,11 @@ public class SensorController {
             bucket = ldt.toInstant(java.time.ZoneOffset.UTC);
         } else if (b instanceof java.time.Instant instantBucket) {
             bucket = instantBucket;
+        } else if (b instanceof String str) {
+            // MySQL DATE_FORMAT returns string like '2026-01-19 22:00:00' in UTC
+            bucket = java.time.LocalDateTime.parse(str, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    .atZone(java.time.ZoneOffset.UTC)
+                    .toInstant();
         } else {
             bucket = java.time.Instant.now();
         }

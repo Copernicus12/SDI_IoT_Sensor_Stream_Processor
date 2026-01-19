@@ -1,4 +1,4 @@
-@startuml
+@startuml erd
 
 ' Stil crow's foot (păstrat)
 hide circle

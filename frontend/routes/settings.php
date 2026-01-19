@@ -27,6 +27,10 @@ Route::middleware('auth')->group(function () {
     Route::get('settings/app', [AppSettingsController::class, 'edit'])->name('app-settings.edit');
     Route::patch('settings/app', [AppSettingsController::class, 'update'])->name('app-settings.update');
 
+    // Anomaly Detection Settings API
+    Route::get('api/settings/anomaly-detection', [AppSettingsController::class, 'getAnomalySettings']);
+    Route::post('api/settings/anomaly-detection', [AppSettingsController::class, 'saveAnomalySettings']);
+
     Route::get('settings/two-factor', [TwoFactorAuthenticationController::class, 'show'])
         ->name('two-factor.show');
 });

@@ -26,6 +26,7 @@ const sensors = ref<Sensor[]>([])
 const selectedSensorId = ref<number|null>(null)
 const anomalies = ref<Anom[]>([])
 const loading = ref(false)
+const savingSettings = ref(false)
 const z = ref(3.0)
 const windowSize = ref(30)
 const hours = ref(6)
@@ -35,6 +36,35 @@ const presets = [
   { label: 'Balanced', z: 3.0, window: 30, hours: 6, desc: 'Standard monitoring' },
   { label: 'Strict', z: 2.5, window: 25, hours: 4, desc: 'High sensitivity' },
 ]
+
+const loadSettings = async () => {
+  try {
+    const res = await apiFetch('/api/settings/anomaly-detection')
+    const json = await res.json()
+    if (json.success && json.data) {
+      z.value = json.data.z ?? 3.0
+      windowSize.value = json.data.window ?? 30
+      hours.value = json.data.hours ?? 6
+    }
+  } catch (e) {
+    console.error('Failed to load anomaly settings:', e)
+  }
+}
+
+const saveSettings = async () => {
+  savingSettings.value = true
+  try {
+    await apiFetch('/api/settings/anomaly-detection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ z: z.value, window: windowSize.value, hours: hours.value })
+    })
+  } catch (e) {
+    console.error('Failed to save anomaly settings:', e)
+  } finally {
+    savingSettings.value = false
+  }
+}
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -83,11 +113,16 @@ const fetchAnomalies = async () => {
 }
 
 onMounted(async () => {
+  await loadSettings()
   await fetchSensors()
   if (selectedSensorId.value) await fetchAnomalies()
 })
 
-watch([selectedSensorId, z, windowSize, hours], fetchAnomalies)
+watch([selectedSensorId], fetchAnomalies)
+watch([z, windowSize, hours], () => {
+  saveSettings()
+  fetchAnomalies()
+})
 
 const sortedAnomalies = computed(() => anomalies.value.slice().sort((a,b)=> new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()))
 const highestZ = computed(() => anomalies.value.reduce((acc,a)=> Math.max(acc, Math.abs(a.z ?? 0)), 0))
@@ -164,7 +199,8 @@ const formatTime = (ts: string) => {
                                 v-for="p in presets"
                                 :key="p.label"
                                 @click="() => { z = p.z; windowSize = p.window; hours = p.hours; }"
-                                class="flex flex-col items-center justify-center p-3 rounded-lg border transition-all hover:bg-gray-50 dark:hover:bg-zinc-800"
+                                :disabled="savingSettings"
+                                class="flex flex-col items-center justify-center p-3 rounded-lg border transition-all hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="z === p.z && windowSize === p.window && hours === p.hours 
                                     ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/10 ring-1 ring-indigo-500 text-indigo-700 dark:text-indigo-400' 
                                     : 'border-gray-200 dark:border-zinc-800 text-gray-600 dark:text-gray-400'"
@@ -173,6 +209,10 @@ const formatTime = (ts: string) => {
                                 <span class="text-[10px] opacity-70 mt-1">{{ p.desc }}</span>
                             </button>
                         </div>
+                        <p v-if="savingSettings" class="text-[10px] text-indigo-500 mt-2 flex items-center gap-1">
+                            <span class="inline-block w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></span>
+                            Saving...
+                        </p>
                     </div>
 
                     <!-- Fine Tuning -->

@@ -4,6 +4,8 @@ sdi/iot/model/ApiToken.class
 sdi/iot/config/ExportTokenFilter.class
 sdi/iot/web/dto/SensorDtos$SensorItem.class
 sdi/iot/model/AggregatedReading.class
+sdi/iot/web/SettingsController.class
+sdi/iot/model/AppSetting.class
 sdi/iot/config/CorsConfig.class
 sdi/iot/web/SensorController$BucketAccumulator.class
 sdi/iot/model/SensorReading.class
@@ -15,6 +17,7 @@ sdi/iot/config/CorsConfig$1.class
 sdi/iot/web/dto/SensorDtos$StatItem.class
 sdi/iot/Application.class
 sdi/iot/web/SensorController.class
+sdi/iot/repo/AppSettingRepository.class
 sdi/iot/bootstrap/DataSeeder.class
 sdi/iot/web/ExportController.class
 sdi/iot/repo/SensorReadingRepository$SensorStats.class

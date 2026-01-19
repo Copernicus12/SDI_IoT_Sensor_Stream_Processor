@@ -61,4 +61,40 @@ class AppSettingsController extends Controller
 
         return to_route('app-settings.edit');
     }
+
+    public function getAnomalySettings(AppSettingsService $settings)
+    {
+        $z = $settings->getFloat('anomaly.z_threshold', 3.0);
+        $window = $settings->getInt('anomaly.window_size', 30);
+        $hours = $settings->getInt('anomaly.lookback_hours', 6);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'z' => $z,
+                'window' => $window,
+                'hours' => $hours,
+            ],
+        ]);
+    }
+
+    public function saveAnomalySettings(Request $request, AppSettingsService $settings)
+    {
+        $validated = $request->validate([
+            'z' => ['required', 'numeric', 'min:1', 'max:5'],
+            'window' => ['required', 'integer', 'min:10', 'max:100'],
+            'hours' => ['required', 'integer', 'min:1', 'max:48'],
+        ]);
+
+        $settings->setMany([
+            'anomaly.z_threshold' => $validated['z'],
+            'anomaly.window_size' => $validated['window'],
+            'anomaly.lookback_hours' => $validated['hours'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Anomaly detection settings saved successfully',
+        ]);
+    }
 }

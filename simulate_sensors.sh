@@ -79,9 +79,9 @@ while true; do
     echo "🌱 Umiditate sol: $SOIL ADC"
     
     # Curent (0.5-4.5A), pas max 0.2
-    # CURR=$(calc_float $CURR 0.5 4.5 0.2)
-    # mosquitto_pub -h localhost -t "iot/esp32_node3/curent" -m "{\"value\": $CURR}"
-    # echo "⚡ Curent: $CURR A"
+    CURR=$(calc_float $CURR 0.5 4.5 0.2)
+    mosquitto_pub -h localhost -t "iot/esp32_node3/curent" -m "{\"value\": $CURR}"
+    echo "⚡ Curent: $CURR A"
     
     echo "---"
     sleep 1
