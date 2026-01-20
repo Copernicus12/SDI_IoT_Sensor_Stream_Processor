@@ -300,7 +300,7 @@ onMounted(async () => {
               <div class="flex items-center gap-3 pt-1 text-xs">
                 <div class="flex items-center gap-1 text-muted-foreground">
                   <Droplets class="h-3 w-3" />
-                  <span>Moisture 0-100%</span>
+                  <span>ADC 300-800</span>
                 </div>
                 <span class="text-muted-foreground/50">•</span>
                 <span class="text-muted-foreground">Capacitive</span>

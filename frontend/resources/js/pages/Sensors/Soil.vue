@@ -69,26 +69,15 @@ const moistureStatus = computed(() => {
     const val = latestValue.value;
     if (val === null) return { label: 'Unknown', color: 'text-gray-500', icon: Info, bg: 'bg-gray-50 dark:bg-zinc-800' };
     
-    // Assuming 0-4095 or 0-100 logic. If analog input, likely inverse or needs calibration. 
-    // Usually capacitive soil sensors: High Value = Dry (Air), Low Value = Wet (Water) or vice versa depending on wiring.
-    // Let's assume calibrated percentage (0-100%). If raw, we might need normalization.
-    // Based on typical backend normalization, let's assume it's mapped to % or raw value.
-    // If > 100, it's likely raw analog (0-4095).
+    // ADC values: 300-800 range
+    // Lower ADC = More moisture (conductive path)
+    // Higher ADC = Less moisture (dry/air)
+    // Typical capacitive sensor: 300=very wet, 800=very dry
     
-    const pct = val; 
-    if (val > 100) { 
-        // Simple heuristic map if raw: 4095=Dry, 1500=Wet? Or 0=Dry? 
-        // Without calibration info, we'll display raw but status might be guessed.
-        // Let's assume the backend normalizes it, if not, we display raw.
-        // For UI purposes, let's assume it's Percentage for status logic:
-        // If raw, we can't easily guess status without calibration points.
-        return { label: 'Raw Analog', color: 'text-blue-500', icon: Activity, bg: 'bg-blue-50 dark:bg-blue-900/20' }; 
-    }
-
-    if (pct < 20) return { label: 'Very Dry', color: 'text-red-500', icon: AlertTriangle, bg: 'bg-red-50 dark:bg-red-900/20' };
-    if (pct < 40) return { label: 'Dry', color: 'text-orange-500', icon: Sprout, bg: 'bg-orange-50 dark:bg-orange-900/20' };
-    if (pct < 70) return { label: 'Optimal', color: 'text-emerald-500', icon: CheckCircle, bg: 'bg-emerald-50 dark:bg-emerald-900/20' };
-    return { label: 'Saturated', color: 'text-blue-500', icon: Droplets, bg: 'bg-blue-50 dark:bg-blue-900/20' };
+    if (val < 400) return { label: 'Very Wet', color: 'text-blue-500', icon: Droplets, bg: 'bg-blue-50 dark:bg-blue-900/20' };
+    if (val < 500) return { label: 'Optimal', color: 'text-emerald-500', icon: CheckCircle, bg: 'bg-emerald-50 dark:bg-emerald-900/20' };
+    if (val < 650) return { label: 'Dry', color: 'text-orange-500', icon: Sprout, bg: 'bg-orange-50 dark:bg-orange-900/20' };
+    return { label: 'Very Dry', color: 'text-red-500', icon: AlertTriangle, bg: 'bg-red-50 dark:bg-red-900/20' };
 });
 
 const chartOptions = computed(() => ({
@@ -144,8 +133,8 @@ const chartData = computed(() => {
 
 const irrigationNeeded = computed(() => {
     if (latestValue.value === null) return false;
-    // Assuming % mapping: < 30% needs water
-    return latestValue.value < 30;
+    // ADC > 650 = dry soil, needs water
+    return latestValue.value > 650;
 });
 
 // Volatility/Stability
@@ -249,13 +238,13 @@ onUnmounted(() => { if (intervalId) clearInterval(intervalId); });
                                 <h3 class="text-4xl font-bold text-gray-900 dark:text-white">
                                     {{ latestValue?.toFixed(1) ?? '--' }}
                                 </h3>
-                                <span class="text-xl text-gray-500">%</span>
+                                <span class="text-xl text-gray-500">ADC</span>
                              </div>
                         </div>
                         <div class="text-right">
                              <div class="text-xs text-gray-500 uppercase mb-1">24h Avg</div>
                              <div class="font-semibold text-gray-900 dark:text-white">
-                                {{ stats24h[soilSensor?.type]?.avg.toFixed(1) ?? '--' }}%
+                                {{ (soilSensor?.type && stats24h[soilSensor.type]?.avg) ? stats24h[soilSensor.type].avg.toFixed(1) : '--' }} ADC
                              </div>
                         </div>
                     </div>
@@ -273,7 +262,7 @@ onUnmounted(() => { if (intervalId) clearInterval(intervalId); });
                         Soil Stability (Volatility)
                     </h3>
                     <div class="flex items-center gap-4">
-                        <div class="text-2xl font-bold text-gray-900 dark:text-white">±{{ volatility.toFixed(2) }}%</div>
+                        <div class="text-2xl font-bold text-gray-900 dark:text-white">±{{ volatility.toFixed(2) }} ADC</div>
                         <p class="text-sm text-gray-500">Standard deviation over selected period. High volatility may indicate active irrigation or drainage issues.</p>
                     </div>
                 </div>

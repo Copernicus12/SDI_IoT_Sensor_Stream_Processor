@@ -215,7 +215,7 @@ onUnmounted(() => {
                             <span class="text-3xl font-bold text-gray-900 dark:text-white">
                                 {{ sensor.value !== null ? sensor.value : '--' }}
                             </span>
-                            <span class="text-lg font-medium text-gray-400 dark:text-gray-500">{{ sensor.unit }}</span>
+                            <span class="text-lg font-medium text-gray-400 dark:text-gray-500">{{ sensor.type === 'soil' ? 'ADC' : sensor.unit }}</span>
                             
                             <!-- Trend Arrow -->
                              <span v-if="sensor.trend === 'up'" class="ml-auto text-red-500 flex items-center text-xs font-medium bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full">

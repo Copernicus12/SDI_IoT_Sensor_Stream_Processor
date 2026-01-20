@@ -84,7 +84,7 @@ onMounted(fetchSensors)
                                         class="w-full appearance-none rounded-lg border border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900/50 py-3 pl-4 pr-10 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                                     >
                                         <option v-for="s in sensors" :key="s.id" :value="s.id">
-                                            {{ s.name }} ({{ s.type }} - {{ s.unit }})
+                                            {{ s.name }} ({{ s.type }} - {{ s.type === 'umiditate_sol' ? 'ADC' : s.unit }})
                                         </option>
                                     </select>
                                     <div class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">

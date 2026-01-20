@@ -228,7 +228,7 @@ const pct = (v: number | null) => {
                     </td>
                     <td class="px-6 py-3">
                       <div class="font-medium">{{ m.sensor_name }}</div>
-                      <div class="text-xs text-muted-foreground">{{ m.unit }}</div>
+                      <div class="text-xs text-muted-foreground">{{ m.sensor_type === 'umiditate_sol' ? 'ADC' : m.unit }}</div>
                     </td>
                     <td class="px-6 py-3 text-right tabular-nums">
                       {{ fmt(m.latest, 2) }}

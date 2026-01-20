@@ -397,7 +397,7 @@ onMounted(() => {
                              </div>
                         </div>
                         <div class="text-xs font-mono text-gray-400 bg-gray-50 dark:bg-zinc-800 px-2 py-1 rounded">
-                            {{ s.unit }}
+                            {{ s.type === 'umiditate_sol' ? 'ADC' : s.unit }}
                         </div>
                     </div>
 
@@ -426,7 +426,7 @@ onMounted(() => {
                             <div class="text-right">
                                 <p class="text-xs text-gray-500 dark:text-gray-400">Next Forecast</p>
                                 <p class="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                                    {{ trendAnalysis[s.id].forecast.toFixed(1) }} {{ s.unit }}
+                                    {{ trendAnalysis[s.id].forecast.toFixed(1) }} {{ s.type === 'umiditate_sol' ? 'ADC' : s.unit }}
                                 </p>
                             </div>
                         </div>

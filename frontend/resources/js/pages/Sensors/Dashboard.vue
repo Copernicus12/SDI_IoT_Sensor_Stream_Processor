@@ -467,7 +467,7 @@ onUnmounted(() => {
                             <CardDescription class="text-xs">Umiditate Sol</CardDescription>
                             <CardTitle class="text-3xl font-extrabold flex items-baseline gap-2">
                                 <span>{{ sensorByType('umiditate_sol')?.latest_value?.toFixed(1) ?? '--' }}</span>
-                                <span class="text-sm font-semibold opacity-60">%</span>
+                                <span class="text-sm font-semibold opacity-60">ADC</span>
                             </CardTitle>
                         </CardHeader>
                             <CardContent class="text-xs flex items-center justify-between">

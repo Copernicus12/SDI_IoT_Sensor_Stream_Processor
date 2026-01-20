@@ -29,7 +29,7 @@ public class DataSeeder implements CommandLineRunner {
         if (sensors.count() == 0) {
             Sensor t = new Sensor(); t.setName("DHT11 Temperature"); t.setType("temperatura"); t.setUnit("°C"); t.setNodeId("node-1"); t.setActive(true); t.setMqttTopic("iot/esp32_node1/temperatura"); sensors.save(t);
             Sensor h = new Sensor(); h.setName("DHT11 Humidity"); h.setType("umiditate"); h.setUnit("%"); h.setNodeId("node-1"); h.setActive(true); h.setMqttTopic("iot/esp32_node1/umiditate"); sensors.save(h);
-            Sensor s = new Sensor(); s.setName("Soil Moisture"); s.setType("umiditate_sol"); s.setUnit("%"); s.setNodeId("node-2"); s.setActive(true); s.setMqttTopic("iot/esp32_node2/umiditate_sol"); sensors.save(s);
+            Sensor s = new Sensor(); s.setName("Soil Moisture"); s.setType("umiditate_sol"); s.setUnit("ADC"); s.setNodeId("node-2"); s.setActive(true); s.setMqttTopic("iot/esp32_node2/umiditate_sol"); sensors.save(s);
             Sensor c = new Sensor(); c.setName("ACS712 Current"); c.setType("curent"); c.setUnit("A"); c.setNodeId("node-3"); c.setActive(true); c.setMqttTopic("iot/esp32_node3/curent"); sensors.save(c);
 
             Random rnd = new Random(42);
@@ -41,11 +41,11 @@ public class DataSeeder implements CommandLineRunner {
                     double base = switch (sensor.getType()) {
                         case "temperatura" -> 21.0;
                         case "umiditate" -> 50.0;
-                        case "umiditate_sol" -> 35.0;
+                        case "umiditate_sol" -> 550.0;
                         case "curent" -> 0.5;
                         default -> 0.0;
                     };
-                    double val = base + rnd.nextGaussian() * (sensor.getType().equals("curent") ? 0.05 : 2.0);
+                    double val = base + rnd.nextGaussian() * (sensor.getType().equals("curent") ? 0.05 : (sensor.getType().equals("umiditate_sol") ? 50.0 : 2.0));
                     r.setValue(val);
                     r.setCreatedAt(now.minusSeconds(60L * (300 - i)));
                     readings.save(r);
